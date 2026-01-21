@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useAuth } from "./AuthProvider";
+import { useAuth } from "@/components/AuthProvider";
 import { motion } from "framer-motion";
 
 export default function Navbar() {
