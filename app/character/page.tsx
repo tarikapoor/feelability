@@ -744,7 +744,8 @@ export default function CharacterPage() {
   const handleCopyShareLink = async () => {
     if (!activeProfile) return;
     setShareCopying(true);
-    const url = `${window.location.origin}/character?profile=${activeProfile.id}`;
+    const sharePath = `/character?profile=${activeProfile.id}`;
+    const url = `${window.location.origin}/login?redirect=${encodeURIComponent(sharePath)}`;
     await navigator.clipboard.writeText(url);
     setToastMessage("Link copied");
     setTimeout(() => setToastMessage(null), 2000);
