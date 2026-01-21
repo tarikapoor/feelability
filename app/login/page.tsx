@@ -21,6 +21,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   const redirectPath = searchParams.get("redirect") || "/";
+  const siteUrl =
+    typeof window !== "undefined"
+      ? process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+      : process.env.NEXT_PUBLIC_SITE_URL || "";
 
   useEffect(() => {
     if (user) {
@@ -31,10 +35,11 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     setLoading(true);
     setError(null);
+    const redirectTo = `${siteUrl}${redirectPath}`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}${redirectPath}`,
+        redirectTo,
       },
     });
     if (error) {
