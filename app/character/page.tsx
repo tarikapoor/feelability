@@ -107,6 +107,15 @@ export default function CharacterPage() {
     showProfileSelector,
   ]);
 
+  useEffect(() => {
+    if (isMobile) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [isMobile]);
+
   // Redirect unauthenticated users
   useEffect(() => {
     if (!loading && !user) {
@@ -441,7 +450,7 @@ export default function CharacterPage() {
   };
 
   const createProfile = async () => {
-    if (!newProfileName.trim() || !user) return;
+    if (!newProfileName.trim() || !user || !newProfileImage) return;
 
     if (editingProfileId) {
       const { data, error } = await supabase
@@ -1187,7 +1196,7 @@ export default function CharacterPage() {
     <>
       <Navbar />
       <main
-        className="h-screen overflow-hidden bg-gradient-to-br from-white via-blue-50 via-pink-50 to-yellow-50 pt-16"
+        className="min-h-screen overflow-y-auto md:h-screen md:overflow-hidden bg-gradient-to-br from-white via-blue-50 via-pink-50 to-yellow-50 pt-16"
         style={{
           fontFamily:
             '"Inter","Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans"',
@@ -1218,7 +1227,7 @@ export default function CharacterPage() {
       {profiles.length === 0 && !profilesLoading ? (
         emptyStateContent
       ) : (
-      <div className="relative h-screen">
+      <div className="relative min-h-screen md:h-screen">
         {/* LEFT PANEL - Profiles Sidebar */}
         {canManageProfiles && (profilesLoading || profiles.length > 0) && (
           <>
@@ -1840,7 +1849,7 @@ export default function CharacterPage() {
               
               {/* Image Upload */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Profile Image </label>
+                <label className="block text-sm font-medium text-gray-700">Profile Image</label>
                 <div className="border-2 border-dashed border-blue-200 rounded-lg p-4 text-center bg-gray-50">
                   {newProfileImage ? (
                     <div className="space-y-2">
@@ -1919,9 +1928,9 @@ export default function CharacterPage() {
                 </button>
                 <button
                   onClick={createProfile}
-                  disabled={!newProfileName.trim()}
+                  disabled={!newProfileName.trim() || !newProfileImage}
                   className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-                    newProfileName.trim()
+                    newProfileName.trim() && newProfileImage
                       ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
