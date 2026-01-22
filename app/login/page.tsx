@@ -108,7 +108,7 @@ export default function LoginPage() {
           </h1>
           <p className="text-gray-600 max-w-3xl mx-auto">
             Vent, love, appreciate, or just let it out — privately or together. Feelability gives
-            you the freedom to express what words often can't say.
+            you the freedom to express what words often can&apos;t say.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
             {user ? (
@@ -186,7 +186,7 @@ export default function LoginPage() {
             </div>
             <h3 className="mt-4 text-lg font-semibold text-purple-700">Share Anonymously</h3>
             <p className="text-gray-600 mt-2">
-              Choose to keep your feelings private or share profiles anonymously. You're in complete
+              Choose to keep your feelings private or share profiles anonymously. You&apos;re in complete
               control of your emotional journey.
             </p>
           </div>
