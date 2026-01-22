@@ -2,11 +2,11 @@
 
 /**
  * ARCHITECTURE LOCK — DO NOT MODIFY WITHOUT REVIEW
- * Core pages must remain separate: Login (Page 0), Home/Profile Selection (Page 1), Character (Page 2).
+ * Core pages: Login + Character (single-page experience).
  * Single source of truth: profiles[] + activeProfileId.
  * Profiles are loaded from Supabase only. Sharing/permissions must remain intact.
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -19,6 +19,25 @@ export default function CharacterPage() {
   const searchParams = useSearchParams();
   const { user, loading } = useAuth();
   const sharedProfileId = searchParams.get("profile");
+  const isGuestMode = !user && searchParams.get("guest") === "1";
+  const shouldPromptCreate = searchParams.get("create") === "1";
+  const [guestSeed] = useState(() => Math.floor(Math.random() * 1000000));
+  const guestProfile = useMemo<Profile>(
+    () => ({
+      id: "guest-profile",
+      ownerId: "guest",
+      name: "John Doe",
+      description: "Guest mode",
+      visibility: "private",
+      createdAt: Date.now(),
+      punchCount: 0,
+      hugCount: 0,
+      kissCount: 0,
+      notesCount: 0,
+      imageData: `https://i.pravatar.cc/900?img=${(guestSeed % 70) + 1}`,
+    }),
+    [guestSeed]
+  );
   // Profile management
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [currentProfileId, setCurrentProfileId] = useState<string | null>(null);
@@ -70,6 +89,8 @@ export default function CharacterPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [showGuestPrompt, setShowGuestPrompt] = useState(false);
+  const [hasAutoOpenedCreate, setHasAutoOpenedCreate] = useState(false);
 
   // Mobile detection
   useEffect(() => {
@@ -108,6 +129,27 @@ export default function CharacterPage() {
   ]);
 
   useEffect(() => {
+    if (!isGuestMode) return;
+    const timer = setTimeout(() => {
+      setShowGuestPrompt(true);
+    }, 60000);
+    return () => clearTimeout(timer);
+  }, [isGuestMode]);
+
+  useEffect(() => {
+    if (!isGuestMode) return;
+    setProfiles([guestProfile]);
+    setProfileImages(
+      guestProfile.imageData ? { [guestProfile.id]: guestProfile.imageData } : {}
+    );
+    setCurrentProfileId(guestProfile.id);
+    setCharacterName(guestProfile.name);
+    setImage(guestProfile.imageData || null);
+    setNotes([]);
+    setProfilesLoading(false);
+  }, [isGuestMode, guestProfile]);
+
+  useEffect(() => {
     if (isMobile) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -116,13 +158,27 @@ export default function CharacterPage() {
     };
   }, [isMobile]);
 
+  useEffect(() => {
+    if (
+      hasAutoOpenedCreate ||
+      !user ||
+      profilesLoading ||
+      profiles.length !== 0 ||
+      !shouldPromptCreate
+    ) {
+      return;
+    }
+    setShowProfileModal(true);
+    setHasAutoOpenedCreate(true);
+  }, [hasAutoOpenedCreate, user, profilesLoading, profiles.length, shouldPromptCreate]);
+
   // Redirect unauthenticated users
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !user && !isGuestMode) {
       const redirectPath = sharedProfileId ? `/?profile=${sharedProfileId}` : "/";
       router.replace(`/login?redirect=${encodeURIComponent(redirectPath)}`);
     }
-  }, [loading, user, router, sharedProfileId]);
+  }, [loading, user, router, sharedProfileId, isGuestMode]);
 
   // Storage key helpers scoped per user (current profile pointer only)
   const storageKey = (base: string) => `u:${user?.id}:${base}`;
@@ -191,6 +247,10 @@ export default function CharacterPage() {
   };
 
   const loadProfileNotes = async (profileId: string) => {
+    if (isGuestMode) {
+      setNotesLoading(false);
+      return;
+    }
     if (!profileId) {
       setNotes([]);
       setNotesLoading(false);
@@ -257,7 +317,7 @@ export default function CharacterPage() {
   // Load profiles and handle shared links
   useEffect(() => {
     const loadProfiles = async () => {
-      if (!user) return;
+      if (!user || isGuestMode) return;
       setProfilesLoading(true);
       setAccessDenied(false);
       try {
@@ -375,7 +435,7 @@ export default function CharacterPage() {
     };
 
     loadProfiles();
-  }, [user, sharedProfileId]);
+  }, [user, sharedProfileId, isGuestMode]);
 
   // Load profile data when currentProfileId or profiles change
   useEffect(() => {
@@ -450,7 +510,7 @@ export default function CharacterPage() {
   };
 
   const createProfile = async () => {
-    if (!newProfileName.trim() || !user || !newProfileImage) return;
+    if (isGuestMode || !newProfileName.trim() || !user || !newProfileImage) return;
 
     if (editingProfileId) {
       const { data, error } = await supabase
@@ -547,6 +607,15 @@ export default function CharacterPage() {
     setIsKissing(true);
     setTimeout(() => {
       setIsKissing(false);
+      if (isGuestMode) {
+        if (currentProfileId) {
+          const updated = profiles.map((p) =>
+            p.id === currentProfileId ? { ...p, kissCount: p.kissCount + 1 } : p
+          );
+          setProfiles(updated);
+        }
+        return;
+      }
       if (currentProfileId) {
         const updated = profiles.map((p) =>
           p.id === currentProfileId ? { ...p, kissCount: p.kissCount + 1 } : p
@@ -565,6 +634,15 @@ export default function CharacterPage() {
     setIsPunching(true);
     setTimeout(() => {
       setIsPunching(false);
+      if (isGuestMode) {
+        if (currentProfileId) {
+          const updated = profiles.map((p) =>
+            p.id === currentProfileId ? { ...p, punchCount: p.punchCount + 1 } : p
+          );
+          setProfiles(updated);
+        }
+        return;
+      }
       if (currentProfileId) {
         const updated = profiles.map((p) =>
           p.id === currentProfileId ? { ...p, punchCount: p.punchCount + 1 } : p
@@ -583,6 +661,15 @@ export default function CharacterPage() {
     setIsHugging(true);
     setTimeout(() => {
       setIsHugging(false);
+      if (isGuestMode) {
+        if (currentProfileId) {
+          const updated = profiles.map((p) =>
+            p.id === currentProfileId ? { ...p, hugCount: p.hugCount + 1 } : p
+          );
+          setProfiles(updated);
+        }
+        return;
+      }
       if (currentProfileId) {
         const updated = profiles.map((p) =>
           p.id === currentProfileId ? { ...p, hugCount: p.hugCount + 1 } : p
@@ -601,7 +688,28 @@ export default function CharacterPage() {
   };
 
   const handleSaveNote = async () => {
-    if (!noteText.trim() || !currentProfileId || !user) return;
+    if (!noteText.trim() || !currentProfileId || (!user && !isGuestMode)) return;
+    if (isGuestMode) {
+      setNoteSaving(true);
+      const newNote: Note = {
+        id: `guest-${Date.now()}`,
+        text: noteText.trim(),
+        authorId: "guest",
+        emotionType: noteEmotionType,
+        createdAt: Date.now(),
+      };
+      const updatedNotes = sortNotesByDate([...notes, newNote]);
+      setNotes(updatedNotes);
+      const updatedProfiles = profiles.map((p) =>
+        p.id === currentProfileId ? { ...p, notesCount: p.notesCount + 1 } : p
+      );
+      setProfiles(updatedProfiles);
+      setNoteText("");
+      setShowWriteModal(false);
+      setNoteSaving(false);
+      return;
+    }
+    if (!user) return;
     setNoteSaving(true);
 
     const nowIso = new Date().toISOString();
@@ -688,7 +796,18 @@ export default function CharacterPage() {
   }, [showWriteModal, noteText]);
 
   const handleDeleteNote = async (id: string, authorId: string) => {
-    if (!currentProfileId || !user || authorId !== user.id) return;
+    if (!currentProfileId) return;
+    if (isGuestMode) {
+      const updatedNotes = sortNotesByDate(notes.filter((note) => note.id !== id));
+      setNotes(updatedNotes);
+      const updatedProfiles = profiles.map((p) =>
+        p.id === currentProfileId ? { ...p, notesCount: Math.max(0, p.notesCount - 1) } : p
+      );
+      setProfiles(updatedProfiles);
+      setNotePendingDeleteId(null);
+      return;
+    }
+    if (!user || authorId !== user.id) return;
 
     setNoteSaving(true);
     const previousNotes = notes;
@@ -723,7 +842,7 @@ export default function CharacterPage() {
     : null;
 
   const isOwner = !!activeProfile && !!user && activeProfile.ownerId === user.id;
-  const canManageProfiles = !!user;
+  const canManageProfiles = !!user && !isGuestMode;
 
   const loadCollaborators = async (profileId: string) => {
     if (!isOwner) return;
@@ -767,6 +886,16 @@ export default function CharacterPage() {
     setToastMessage("Access removed");
     setTimeout(() => setToastMessage(null), 2000);
     setCollabActionId(null);
+  };
+
+  const handleGuestContinue = () => {
+    setShowGuestPrompt(false);
+    const redirectPath = "/?create=1";
+    router.push(`/login?redirect=${encodeURIComponent(redirectPath)}`);
+  };
+
+  const handleGuestLater = () => {
+    setShowGuestPrompt(false);
   };
 
   // Animation variants (unchanged)
@@ -1202,6 +1331,32 @@ export default function CharacterPage() {
             '"Inter","Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans"',
         }}
       >
+        {isGuestMode && (
+          <div className="fixed top-0 left-0 right-0 z-40 bg-white/70 backdrop-blur-sm border-b border-gray-200">
+            <div className="w-full px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between h-16">
+                <button
+                  onClick={() => router.push("/login")}
+                  className="flex items-center gap-2 font-semibold text-pink-600 hover:text-pink-700 transition-colors"
+                >
+                  <span className="text-lg">💜</span>
+                  <span>Feelability</span>
+                </button>
+                <button
+                  onClick={handleGuestContinue}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold shadow-md hover:from-pink-600 hover:to-purple-600 transition-colors"
+                >
+                  Login
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {isGuestMode && (
+          <div className="fixed top-20 right-4 z-40 px-3 py-1 rounded-full bg-white/80 backdrop-blur-sm border border-gray-200 text-xs text-gray-600">
+            Guest mode
+          </div>
+        )}
         {/* Mobile: Profiles Button */}
         {isMobile && canManageProfiles && (profilesLoading || profiles.length > 0) && (
           <button
@@ -1434,14 +1589,14 @@ export default function CharacterPage() {
           <button
             onClick={handlePunch}
             disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-red-100 h-32 bg-red-50 ${
+            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#F97316]/40 h-32 bg-[#F97316]/15 ${
               isPunching || isHugging || isKissing || noteSaving || switchingProfile
                 ? "opacity-60 cursor-not-allowed"
                 : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-[#F97316]/25 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[#F97316]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
@@ -1451,14 +1606,14 @@ export default function CharacterPage() {
           <button
             onClick={handleHug}
             disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-pink-100 h-32 bg-pink-50 ${
+            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#FDE047]/50 h-32 bg-[#FDE047]/20 ${
               isPunching || isHugging || isKissing || noteSaving || switchingProfile
                 ? "opacity-60 cursor-not-allowed"
                 : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center">
-              <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-[#FDE047]/35 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[#FDE047]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
             </div>
@@ -1468,14 +1623,14 @@ export default function CharacterPage() {
           <button
             onClick={handleKiss}
             disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-rose-100 h-32 bg-rose-50 ${
+            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#FB7185]/40 h-32 bg-[#FB7185]/15 ${
               isPunching || isHugging || isKissing || noteSaving || switchingProfile
                 ? "opacity-60 cursor-not-allowed"
                 : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
-              <svg className="w-6 h-6 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-[#FB7185]/25 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[#FB7185]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -1485,12 +1640,12 @@ export default function CharacterPage() {
           <button
             onClick={handleWrite}
             disabled={noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-blue-100 h-32 bg-blue-50 ${
+            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#A855F7]/40 h-32 bg-[#A855F7]/15 ${
               noteSaving || switchingProfile ? "opacity-60 cursor-not-allowed" : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-[#A855F7]/25 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[#A855F7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </div>
@@ -1719,6 +1874,86 @@ export default function CharacterPage() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Guest Conversion Prompt */}
+      <AnimatePresence>
+        {isGuestMode && showGuestPrompt && (
+          isMobile ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50"
+            >
+              <div
+                className="absolute inset-0 bg-black/30"
+                onClick={handleGuestLater}
+              />
+              <motion.div
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md rounded-t-2xl p-5"
+              >
+                <h3 className="text-lg font-semibold text-gray-800">
+                  Ready to create a real profile and keep expressing what you feel?
+                </h3>
+                <div className="mt-4 flex flex-col gap-3">
+                  <button
+                    onClick={handleGuestContinue}
+                    className="w-full py-3 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors"
+                  >
+                    Continue with Google
+                  </button>
+                  <button
+                    onClick={handleGuestLater}
+                    className="w-full py-2.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Maybe later
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div
+                className="absolute inset-0 bg-black/40"
+                onClick={handleGuestLater}
+              />
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="relative bg-white/95 backdrop-blur-md rounded-2xl p-6 max-w-lg w-full shadow-xl border border-gray-100"
+              >
+                <h3 className="text-xl font-semibold text-gray-800">
+                  Ready to create a real profile and keep expressing what you feel?
+                </h3>
+                <div className="mt-5 flex gap-3">
+                  <button
+                    onClick={handleGuestContinue}
+                    className="flex-1 py-3 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors"
+                  >
+                    Continue with Google
+                  </button>
+                  <button
+                    onClick={handleGuestLater}
+                    className="flex-1 py-3 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Maybe later
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )
         )}
       </AnimatePresence>
 
