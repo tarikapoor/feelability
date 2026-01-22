@@ -110,9 +110,7 @@ export default function CharacterPage() {
   // Redirect unauthenticated users
   useEffect(() => {
     if (!loading && !user) {
-      const redirectPath = sharedProfileId
-        ? `/character?profile=${sharedProfileId}`
-        : "/character";
+      const redirectPath = sharedProfileId ? `/?profile=${sharedProfileId}` : "/";
       router.replace(`/login?redirect=${encodeURIComponent(redirectPath)}`);
     }
   }, [loading, user, router, sharedProfileId]);
@@ -744,7 +742,7 @@ export default function CharacterPage() {
   const handleCopyShareLink = async () => {
     if (!activeProfile) return;
     setShareCopying(true);
-    const sharePath = `/character?profile=${activeProfile.id}`;
+    const sharePath = `/?profile=${activeProfile.id}`;
     const url = `${window.location.origin}/login?redirect=${encodeURIComponent(sharePath)}`;
     await navigator.clipboard.writeText(url);
     setToastMessage("Link copied");
@@ -824,6 +822,26 @@ export default function CharacterPage() {
       },
     },
   };
+
+  // Shared empty-state UI (reusable for no-results states).
+  const emptyStateContent = (
+    <div className="h-[calc(100vh-4rem)] flex items-center justify-center px-6">
+      <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-lg border border-gray-100 text-center max-w-md">
+        <h2 className="text-xl font-semibold text-gray-800">
+          Create your first profile to start expressing
+        </h2>
+        <p className="text-gray-600 mt-2">
+          Profiles let you capture how different people make you feel.
+        </p>
+        <button
+          onClick={() => setShowProfileModal(true)}
+          className="mt-5 px-5 py-2.5 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors"
+        >
+          + Create New Profile
+        </button>
+      </div>
+    </div>
+  );
 
   const characterContent = (
     <div className="w-full max-w-md space-y-8 relative">
@@ -1198,20 +1216,7 @@ export default function CharacterPage() {
 
       {/* Main Grid Layout */}
       {profiles.length === 0 && !profilesLoading ? (
-        <div className="h-[calc(100vh-4rem)] flex items-center justify-center px-6">
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-gray-100 text-center max-w-md">
-            <h2 className="text-xl font-semibold text-gray-800">No profiles yet</h2>
-            <p className="text-gray-600 mt-2">
-              Create a profile on the homepage to get started.
-            </p>
-            <button
-              onClick={() => setShowProfileModal(true)}
-              className="mt-4 px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              Create Profile
-            </button>
-          </div>
-        </div>
+        emptyStateContent
       ) : (
       <div className="relative h-screen">
         {/* LEFT PANEL - Profiles Sidebar */}
@@ -1835,7 +1840,7 @@ export default function CharacterPage() {
               
               {/* Image Upload */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Profile Image (optional)</label>
+                <label className="block text-sm font-medium text-gray-700">Profile Image </label>
                 <div className="border-2 border-dashed border-blue-200 rounded-lg p-4 text-center bg-gray-50">
                   {newProfileImage ? (
                     <div className="space-y-2">
