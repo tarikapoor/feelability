@@ -511,6 +511,16 @@ export default function CharacterPage() {
 
   const createProfile = async () => {
     if (isGuestMode || !newProfileName.trim() || !user || !newProfileImage) return;
+    if (newProfileName.trim().length > 30) {
+      setToastMessage("Profile name must be 30 characters or less");
+      setTimeout(() => setToastMessage(null), 2000);
+      return;
+    }
+    if (newProfileDesc.trim().length > 50) {
+      setToastMessage("Profile description must be 50 characters or less");
+      setTimeout(() => setToastMessage(null), 2000);
+      return;
+    }
 
     if (editingProfileId) {
       const { data, error } = await supabase
@@ -898,6 +908,138 @@ export default function CharacterPage() {
     setShowGuestPrompt(false);
   };
 
+  const profileFormContent = (
+    <>
+      <div className="flex items-center justify-between">
+        <h3 className="text-xl font-bold text-gray-800">
+          {editingProfileId ? "Edit Profile" : "Create New Profile"}
+        </h3>
+        <button
+          onClick={() => {
+            setShowProfileModal(false);
+            resetEditMode();
+          }}
+          className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+          aria-label="Close"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      {/* Image Upload */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700">Profile Image</label>
+        <div className="border-2 border-dashed border-blue-200 rounded-lg p-4 text-center bg-gray-50">
+          {newProfileImage ? (
+            <div className="space-y-2">
+              <img
+                src={newProfileImage}
+                alt="Preview"
+                className="max-w-full max-h-32 mx-auto rounded-lg"
+              />
+              <button
+                onClick={() => setNewProfileImage(null)}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Remove image
+              </button>
+            </div>
+          ) : (
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleNewProfileImageUpload}
+                className="hidden"
+              />
+              <div className="space-y-2">
+                <p className="text-gray-500 text-sm">Click to upload an image</p>
+                <p className="text-xs text-gray-400">PNG, JPG, or GIF</p>
+              </div>
+            </label>
+          )}
+        </div>
+      </div>
+
+      <input
+        type="text"
+        value={newProfileName}
+        onChange={(e) => setNewProfileName(e.target.value)}
+        placeholder="Profile name (e.g., Manager, Parents)"
+        maxLength={30}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300"
+      />
+      <div className={`text-xs ${newProfileName.length >= 30 ? "text-red-600" : "text-gray-500"}`}>
+        {newProfileName.length}/30 characters
+      </div>
+      <textarea
+        value={newProfileDesc}
+        onChange={(e) => setNewProfileDesc(e.target.value)}
+        placeholder="Description (optional)"
+        maxLength={50}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-20 resize-none"
+      />
+      <div className={`text-xs ${newProfileDesc.length >= 50 ? "text-red-600" : "text-gray-500"}`}>
+        {newProfileDesc.length}/50 characters
+      </div>
+
+      {/* Public/Private Toggle */}
+      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+        <span className="text-sm font-medium text-gray-700">Visibility</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              newProfileIsPublic ? "bg-pink-500" : "bg-gray-300"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                newProfileIsPublic ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+          <span className="text-sm text-gray-600">{newProfileIsPublic ? "Public" : "Private"}</span>
+        </div>
+      </div>
+
+      {!isMobile && (
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setShowProfileModal(false);
+              resetEditMode();
+            }}
+            className="flex-1 py-2 px-4 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={createProfile}
+            disabled={!newProfileName.trim() || !newProfileImage}
+            className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
+              newProfileName.trim() && newProfileImage
+                ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
+                : "bg-gray-200 text-gray-400 cursor-not-allowed"
+            }`}
+          >
+            {editingProfileId ? "Save" : "Create"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+
   // Animation variants (unchanged)
   const punchVariants = {
     initial: { x: 0, rotate: 0, scale: 1 },
@@ -982,9 +1124,9 @@ export default function CharacterPage() {
   );
 
   const characterContent = (
-    <div className="w-full max-w-md space-y-8 relative">
+    <div className="w-full max-w-md space-y-1 relative">
       {image ? (
-        <div className="relative space-y-4">
+        <div className="relative space-y-1">
           <motion.div
             animate={isPunching ? "punch" : "initial"}
             variants={punchVariants}
@@ -1537,20 +1679,29 @@ export default function CharacterPage() {
         )}
 
         {characterName ? (
-          <div className="flex items-center justify-center gap-3">
-            <h2 className="text-3xl md:text-3xl font-extrabold text-center text-gray-800">{characterName}</h2>
-            {isOwner && (
-              <motion.button
-                onClick={handleShareProfile}
-                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                title="Share profile"
-              >
-                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                </svg>
-              </motion.button>
+          <div className="-mt-[8px] -mb-[8px] md:-mt-[11px] md:-mb-[11px] space-y-1 text-center">
+            <div className="flex items-center justify-center gap-2.5">
+              <h2 className="text-2xl md:text-[2.1rem] font-extrabold text-gray-800">
+                {characterName}
+              </h2>
+              {isOwner && (
+                <motion.button
+                  onClick={handleShareProfile}
+                  className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  title="Share profile"
+                >
+                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                </motion.button>
+              )}
+            </div>
+            {activeProfile?.visibility === "public" && (
+              <div className="text-sm text-gray-600">
+                {activeProfile.description?.trim() || "Shared"}
+              </div>
             )}
           </div>
         ) : (
@@ -1559,7 +1710,7 @@ export default function CharacterPage() {
 
         {/* Profile Summary Widget - Only show if using profiles */}
         {activeProfile && profiles.length > 0 ? (
-          <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 space-y-2">
+          <div className="-mt-[2px] md:-mt-[3px] bg-white/60 backdrop-blur-sm rounded-xl p-2 md:p-3 space-y-1.5">
             <p className="text-sm text-gray-600">This week:</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
               <span className="flex items-center gap-1">
@@ -1585,71 +1736,71 @@ export default function CharacterPage() {
         )}
 
         {/* Horizontal Action Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-2xl mx-auto">
+        <div className="-mt-[2px] md:-mt-[3px] grid grid-cols-4 md:grid-cols-4 gap-3 md:gap-4 w-full max-w-2xl mx-auto">
           <button
             onClick={handlePunch}
             disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#F97316]/40 h-32 bg-[#F97316]/15 ${
+            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#F97316]/40 h-24 md:h-32 bg-[#F97316]/15 ${
               isPunching || isHugging || isKissing || noteSaving || switchingProfile
                 ? "opacity-60 cursor-not-allowed"
                 : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-[#F97316]/25 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[#F97316]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#F97316]/25 flex items-center justify-center">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#F97316]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <span className="text-sm font-semibold text-gray-800">Punch</span>
+            <span className="text-xs md:text-sm font-semibold text-gray-800">Punch</span>
           </button>
 
           <button
             onClick={handleHug}
             disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#FDE047]/50 h-32 bg-[#FDE047]/20 ${
+            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#D97706]/60 h-24 md:h-32 bg-[#FDE047]/20 ${
               isPunching || isHugging || isKissing || noteSaving || switchingProfile
                 ? "opacity-60 cursor-not-allowed"
                 : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-[#FDE047]/35 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[#FDE047]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#FDE047]/35 flex items-center justify-center">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#D97706]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
             </div>
-            <span className="text-sm font-semibold text-gray-800">Hug</span>
+            <span className="text-xs md:text-sm font-semibold text-gray-800">Hug</span>
           </button>
 
           <button
             onClick={handleKiss}
             disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#FB7185]/40 h-32 bg-[#FB7185]/15 ${
+            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#FB7185]/40 h-24 md:h-32 bg-[#FB7185]/15 ${
               isPunching || isHugging || isKissing || noteSaving || switchingProfile
                 ? "opacity-60 cursor-not-allowed"
                 : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-[#FB7185]/25 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[#FB7185]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#FB7185]/25 flex items-center justify-center">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#FB7185]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <span className="text-sm font-semibold text-gray-800">Kiss</span>
+            <span className="text-xs md:text-sm font-semibold text-gray-800">Kiss</span>
           </button>
 
           <button
             onClick={handleWrite}
             disabled={noteSaving || switchingProfile}
-            className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-[#A855F7]/40 h-32 bg-[#A855F7]/15 ${
+            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#A855F7]/40 h-24 md:h-32 bg-[#A855F7]/15 ${
               noteSaving || switchingProfile ? "opacity-60 cursor-not-allowed" : "hover:shadow-md hover:scale-105 active:scale-95"
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-[#A855F7]/25 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[#A855F7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#A855F7]/25 flex items-center justify-center">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#A855F7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </div>
-            <span className="text-sm font-semibold text-gray-800">Say something</span>
+            <span className="text-xs md:text-sm font-semibold text-gray-800">Notes</span>
           </button>
         </div>
           </div>
@@ -2005,7 +2156,7 @@ export default function CharacterPage() {
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
-        {deleteConfirmProfileId && (
+        {deleteConfirmProfileId && !isMobile && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2020,7 +2171,17 @@ export default function CharacterPage() {
               className="bg-white rounded-xl p-6 w-full max-w-md space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-gray-800">Delete Profile</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-800">Delete Profile</h3>
+                <button
+                  onClick={() => setDeleteConfirmProfileId(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
               <p className="text-gray-600">Are you sure you want to delete the profile</p>
               <div className="flex gap-3">
                 <button
@@ -2039,11 +2200,58 @@ export default function CharacterPage() {
             </motion.div>
           </motion.div>
         )}
+        {deleteConfirmProfileId && isMobile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50"
+          >
+            <div
+              className="absolute inset-0 bg-black/30"
+              onClick={() => setDeleteConfirmProfileId(null)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md rounded-t-2xl p-5"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-800">Delete Profile</h3>
+                <button
+                  onClick={() => setDeleteConfirmProfileId(null)}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mt-2">Are you sure you want to delete the profile</p>
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirmProfileId(null)}
+                  className="flex-1 py-2.5 px-4 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDeleteProfile(deleteConfirmProfileId)}
+                  className="flex-1 py-2.5 px-4 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  Yes
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
-      {/* Create Profile Modal */}
+      {/* Create/Edit Profile Modal */}
       <AnimatePresence>
-        {showProfileModal && (
+        {showProfileModal && !isMobile && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2058,113 +2266,51 @@ export default function CharacterPage() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-xl p-6 w-full max-w-md space-y-4 relative"
+              className="bg-white rounded-xl p-6 w-full max-w-md space-y-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <button
-                onClick={() => {
-                  setShowProfileModal(false);
-                  resetEditMode();
-                }}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-              </button>
-              <h3 className="text-xl font-bold text-gray-800">{editingProfileId ? "Edit Profile" : "Create New Profile"}</h3>
-              
-              {/* Image Upload */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Profile Image</label>
-                <div className="border-2 border-dashed border-blue-200 rounded-lg p-4 text-center bg-gray-50">
-                  {newProfileImage ? (
-                    <div className="space-y-2">
-                      <img
-                        src={newProfileImage}
-                        alt="Preview"
-                        className="max-w-full max-h-32 mx-auto rounded-lg"
-                      />
-                      <button
-                        onClick={() => setNewProfileImage(null)}
-                        className="text-sm text-gray-500 hover:text-gray-700"
-                      >
-                        Remove image
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="cursor-pointer">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleNewProfileImageUpload}
-                        className="hidden"
-                      />
-                      <div className="space-y-2">
-                        <p className="text-gray-500 text-sm">Click to upload an image</p>
-                        <p className="text-xs text-gray-400">PNG, JPG, or GIF</p>
-                      </div>
-                    </label>
-                  )}
-                </div>
+              {profileFormContent}
+            </motion.div>
+          </motion.div>
+        )}
+        {showProfileModal && isMobile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50"
+          >
+            <div
+              className="absolute inset-0 bg-black/30"
+              onClick={() => {
+                setShowProfileModal(false);
+                resetEditMode();
+              }}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md rounded-t-2xl max-h-[90vh] flex flex-col overflow-hidden"
+            >
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                {profileFormContent}
               </div>
-
-              <input
-                type="text"
-                value={newProfileName}
-                onChange={(e) => setNewProfileName(e.target.value)}
-                placeholder="Profile name (e.g., Manager, Parents)"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300"
-              />
-              <textarea
-                value={newProfileDesc}
-                onChange={(e) => setNewProfileDesc(e.target.value)}
-                placeholder="Description (optional)"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-20 resize-none"
-              />
-
-              {/* Public/Private Toggle */}
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-700">Visibility</span>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      newProfileIsPublic ? "bg-pink-500" : "bg-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        newProfileIsPublic ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                  <span className="text-sm text-gray-600">{newProfileIsPublic ? "Public" : "Private"}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
+              <div className="sticky bottom-0 w-full bg-white/95 backdrop-blur-md border-t border-gray-200 p-4 flex gap-3">
                 <button
                   onClick={() => {
                     setShowProfileModal(false);
                     resetEditMode();
                   }}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex-1 py-2.5 px-4 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={createProfile}
                   disabled={!newProfileName.trim() || !newProfileImage}
-                  className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
+                  className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all ${
                     newProfileName.trim() && newProfileImage
                       ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"

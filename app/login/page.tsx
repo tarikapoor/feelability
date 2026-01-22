@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   const redirectPath = searchParams.get("redirect") || "/";
+  const searchParamsKey = searchParams.toString();
   const siteUrl =
     typeof window !== "undefined"
       ? process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
@@ -30,6 +31,20 @@ export default function LoginPage() {
       router.replace(redirectPath);
     }
   }, [user, router, redirectPath, searchParams]);
+
+  useEffect(() => {
+    setLoading(false);
+  }, [searchParamsKey]);
+
+  useEffect(() => {
+    const handle = () => setLoading(false);
+    window.addEventListener("pageshow", handle);
+    window.addEventListener("focus", handle);
+    return () => {
+      window.removeEventListener("pageshow", handle);
+      window.removeEventListener("focus", handle);
+    };
+  }, []);
 
   const handleTryFirst = () => {
     router.push("/?guest=1");
@@ -107,7 +122,7 @@ export default function LoginPage() {
             </span>
           </h1>
           <p className="text-gray-600 max-w-3xl mx-auto">
-            Vent, love, appreciate, or just let it out — privately or together. Feelability gives
+            Vent, love, appreciate, or just let it out - privately or together. Feelability gives
             you the freedom to express what words often can&apos;t say.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
@@ -176,7 +191,7 @@ export default function LoginPage() {
             </div>
             <h3 className="mt-4 text-lg font-semibold text-purple-700">Express Through Notes</h3>
             <p className="text-gray-600 mt-2">
-              Write notes, capture emotions, and take actions that reflect your feelings — no
+              Write notes, capture emotions, and take actions that reflect your feelings - no
               judgment, just authenticity.
             </p>
           </div>

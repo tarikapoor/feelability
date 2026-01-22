@@ -43,6 +43,7 @@ drop policy if exists "profiles_owner_insert" on public.profiles;
 drop policy if exists "profiles_owner_update" on public.profiles;
 drop policy if exists "profiles_owner_delete" on public.profiles;
 drop policy if exists "profiles_public_collab_select" on public.profiles;
+drop policy if exists "profiles_public_select" on public.profiles;
 drop policy if exists "profiles_owner_or_collab_update" on public.profiles;
 
 drop policy if exists "collaborators_owner_select" on public.profile_collaborators;
@@ -69,7 +70,7 @@ as $$
   );
 $$;
 
--- Profiles: owner can manage, collaborators can read if public
+-- Profiles: owner can manage, anyone can read public profiles
 create policy "profiles_owner_select"
   on public.profiles for select
   using (owner_id = auth.uid());
@@ -86,12 +87,9 @@ create policy "profiles_owner_delete"
   on public.profiles for delete
   using (owner_id = auth.uid());
 
-create policy "profiles_public_collab_select"
+create policy "profiles_public_select"
   on public.profiles for select
-  using (
-    visibility = 'public'
-    and public.is_profile_collaborator(profiles.id, auth.uid())
-  );
+  using (visibility = 'public');
 
 -- Collaborators: only owners can view/manage, any authed user can add self to public
 create policy "collaborators_owner_select"
