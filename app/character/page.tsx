@@ -62,6 +62,7 @@ export default function CharacterPage() {
   const [collabActionId, setCollabActionId] = useState<string | null>(null);
   const [shareCopying, setShareCopying] = useState(false);
   const [notePendingDeleteId, setNotePendingDeleteId] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [isProfilesSheetOpen, setIsProfilesSheetOpen] = useState(false);
   const [sheetDragStartY, setSheetDragStartY] = useState<number | null>(null);
   
@@ -261,7 +262,7 @@ export default function CharacterPage() {
     let error: any = null;
     ({ data, error } = await supabase
       .from("profile_notes")
-      .select("id, text, user_id, created_at")
+      .select("id, text, user_id, emotion_type, created_at")
       .eq("profile_id", profileId)
       .order("created_at", { ascending: false }));
 
@@ -510,6 +511,7 @@ export default function CharacterPage() {
   };
 
   const createProfile = async () => {
+    if (profileSaving) return;
     if (isGuestMode || !newProfileName.trim() || !user || !newProfileImage) return;
     if (newProfileName.trim().length > 30) {
       setToastMessage("Profile name must be 30 characters or less");
@@ -521,6 +523,8 @@ export default function CharacterPage() {
       setTimeout(() => setToastMessage(null), 2000);
       return;
     }
+
+    setProfileSaving(true);
 
     if (editingProfileId) {
       const { data, error } = await supabase
@@ -537,6 +541,7 @@ export default function CharacterPage() {
 
       if (error || !data) {
         console.error("Error updating profile:", error);
+        setProfileSaving(false);
         return;
       }
 
@@ -559,6 +564,7 @@ export default function CharacterPage() {
 
       resetEditMode();
       setShowProfileModal(false);
+      setProfileSaving(false);
     } else {
       const { data, error } = await supabase
         .from("profiles")
@@ -578,6 +584,7 @@ export default function CharacterPage() {
 
       if (error || !data) {
         console.error("Error creating profile:", error);
+        setProfileSaving(false);
         return;
       }
 
@@ -597,6 +604,7 @@ export default function CharacterPage() {
       setNotes([]);
       if (!newProfile.imageData) setImage(null);
       setCharacterName("");
+      setProfileSaving(false);
     }
   };
 
@@ -734,25 +742,6 @@ export default function CharacterPage() {
       })
       .select()
       .single();
-
-    if (
-      error &&
-      typeof error.message === "string" &&
-      error.message.toLowerCase().includes("emotion_type")
-    ) {
-      const retry = await supabase
-        .from("profile_notes")
-        .insert({
-          profile_id: currentProfileId,
-          user_id: user.id,
-          text: noteText.trim(),
-          created_at: nowIso,
-        })
-        .select()
-        .single();
-      data = retry.data;
-      error = retry.error;
-    }
 
     if (error || !data) {
       console.error("Error saving note:", error);
@@ -1024,16 +1013,16 @@ export default function CharacterPage() {
           >
             Cancel
           </button>
-          <button
+        <button
             onClick={createProfile}
-            disabled={!newProfileName.trim() || !newProfileImage}
+          disabled={!newProfileName.trim() || !newProfileImage || profileSaving}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-              newProfileName.trim() && newProfileImage
+            newProfileName.trim() && newProfileImage && !profileSaving
                 ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
             }`}
           >
-            {editingProfileId ? "Save" : "Create"}
+          {profileSaving ? "Saving..." : editingProfileId ? "Save" : "Create"}
           </button>
         </div>
       )}
@@ -1140,7 +1129,7 @@ export default function CharacterPage() {
                 <img
                   src={image}
                   alt={characterName || "Character"}
-                  className="w-full h-full object-cover object-center"
+                  className="w-full h-full object-contain object-center bg-white/70"
                 />
               </div>
             </motion.div>
@@ -1389,7 +1378,7 @@ export default function CharacterPage() {
                 <img
                   src={profileImages[profile.id]}
                   alt={profile.name}
-                  className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                  className="w-10 h-10 rounded-full object-contain bg-white flex-shrink-0"
                 />
               ) : (
                 <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
@@ -1580,11 +1569,11 @@ export default function CharacterPage() {
                 variants={scaleVariants}
               >
                 <div className="w-full h-64 md:h-80 rounded-2xl overflow-hidden relative z-10 shadow-md">
-                  <img
-                    src={image}
-                    alt={characterName || "Character"}
-                    className="w-full h-full object-cover object-center"
-                  />
+                <img
+                  src={image}
+                  alt={characterName || "Character"}
+                  className="w-full h-full object-contain object-center bg-white/70"
+                />
                 </div>
               </motion.div>
 
@@ -2309,14 +2298,14 @@ export default function CharacterPage() {
                 </button>
                 <button
                   onClick={createProfile}
-                  disabled={!newProfileName.trim() || !newProfileImage}
+                  disabled={!newProfileName.trim() || !newProfileImage || profileSaving}
                   className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all ${
-                    newProfileName.trim() && newProfileImage
+                    newProfileName.trim() && newProfileImage && !profileSaving
                       ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
                 >
-                  {editingProfileId ? "Save" : "Create"}
+                  {profileSaving ? "Saving..." : editingProfileId ? "Save" : "Create"}
                 </button>
               </div>
             </motion.div>
