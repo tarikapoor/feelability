@@ -183,6 +183,14 @@ export default function CharacterPage() {
 
   // Storage key helpers scoped per user (current profile pointer only)
   const storageKey = (base: string) => `u:${user?.id}:${base}`;
+  const shouldLogTimings = () =>
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("debug:timings") === "1";
+
+  const logTiming = (label: string, start: number | null) => {
+    if (start === null || !shouldLogTimings()) return;
+    console.info(`[timing] ${label}: ${Math.round(performance.now() - start)}ms`);
+  };
 
   const mapProfile = (p: any): Profile => ({
     id: p.id,
@@ -197,6 +205,30 @@ export default function CharacterPage() {
     kissCount: p.kiss_count ?? 0,
     notesCount: p.notes_count ?? 0,
   });
+
+  const loadProfileImage = async (profileId: string) => {
+    if (!profileId || isGuestMode) return null;
+    if (profileImages[profileId]) return profileImages[profileId];
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("image_data")
+      .eq("id", profileId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error loading profile image:", error);
+      return null;
+    }
+
+    const imageData = data?.image_data || null;
+    if (!imageData) return null;
+
+    setProfileImages((prev) => ({ ...prev, [profileId]: imageData }));
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === profileId ? { ...p, imageData } : p))
+    );
+    return imageData;
+  };
 
   const sortNotesByDate = (items: Note[]) => {
     return [...items].sort((a, b) => {
@@ -248,13 +280,16 @@ export default function CharacterPage() {
   };
 
   const loadProfileNotes = async (profileId: string) => {
+    const notesStart = shouldLogTimings() ? performance.now() : null;
     if (isGuestMode) {
       setNotesLoading(false);
+      logTiming(`notes guest mode`, notesStart);
       return;
     }
     if (!profileId) {
       setNotes([]);
       setNotesLoading(false);
+      logTiming(`notes empty profile`, notesStart);
       return;
     }
     setNotesLoading(true);
@@ -269,6 +304,7 @@ export default function CharacterPage() {
     if (error) {
       console.error("Error loading notes:", error);
       setNotesLoading(false);
+      logTiming(`notes error ${profileId}`, notesStart);
       return;
     }
 
@@ -282,6 +318,7 @@ export default function CharacterPage() {
       })) || [];
     setNotes(sortNotesByDate(mapped));
     setNotesLoading(false);
+    logTiming(`notes fetch ${profileId}`, notesStart);
   };
 
   const ensureCollaborator = async (profileId: string) => {
@@ -319,118 +356,130 @@ export default function CharacterPage() {
   useEffect(() => {
     const loadProfiles = async () => {
       if (!user || isGuestMode) return;
+      const totalStart = shouldLogTimings() ? performance.now() : null;
       setProfilesLoading(true);
       setAccessDenied(false);
       try {
-      const { data: owned, error: ownedError } = await supabase
-        .from("profiles")
-        .select(
-          "id, owner_id, name, description, visibility, image_data, punch_count, hug_count, kiss_count, notes_count, created_at"
-        )
-        .eq("owner_id", user.id)
-        .order("created_at", { ascending: false });
+        const ownedSharedStart = shouldLogTimings() ? performance.now() : null;
+        const [ownedResult, sharedIdsResult] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select(
+              "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
+            )
+            .eq("owner_id", user.id)
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("profile_collaborators")
+            .select("profile_id")
+            .eq("user_id", user.id),
+        ]);
+        logTiming("profiles owned + collaborator ids", ownedSharedStart);
 
-      if (ownedError) {
-        console.error("Error loading owned profiles:", ownedError);
-        return;
-      }
+        const { data: owned, error: ownedError } = ownedResult;
+        const { data: sharedIds, error: sharedIdsError } = sharedIdsResult;
 
-      const ownedProfiles = (owned || []).map(mapProfile);
+        if (ownedError) {
+          console.error("Error loading owned profiles:", ownedError);
+          return;
+        }
 
-      const { data: sharedIds, error: sharedIdsError } = await supabase
-        .from("profile_collaborators")
-        .select("profile_id")
-        .eq("user_id", user.id);
+        const ownedProfiles = (owned || []).map(mapProfile);
 
-      if (sharedIdsError) {
-        console.error("Error loading collaborator ids:", sharedIdsError);
-      }
+        if (sharedIdsError) {
+          console.error("Error loading collaborator ids:", sharedIdsError);
+        }
 
-      const sharedProfileIds = (sharedIds || []).map((r) => r.profile_id);
-      let sharedProfiles: Profile[] = [];
-      if (sharedProfileIds.length > 0) {
-        const { data: shared, error: sharedError } = await supabase
-          .from("profiles")
-          .select(
-            "id, owner_id, name, description, visibility, image_data, punch_count, hug_count, kiss_count, notes_count, created_at"
-          )
-          .in("id", sharedProfileIds)
-          .order("created_at", { ascending: false });
+        const sharedProfileIds = (sharedIds || []).map((r) => r.profile_id);
+        let sharedProfiles: Profile[] = [];
+        if (sharedProfileIds.length > 0) {
+          const sharedProfilesStart = shouldLogTimings() ? performance.now() : null;
+          const { data: shared, error: sharedError } = await supabase
+            .from("profiles")
+            .select(
+              "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
+            )
+            .in("id", sharedProfileIds)
+            .order("created_at", { ascending: false });
+          logTiming("profiles shared fetch", sharedProfilesStart);
 
-        if (sharedError) {
-          console.error("Error loading shared profiles:", sharedError);
+          if (sharedError) {
+            console.error("Error loading shared profiles:", sharedError);
+          } else {
+            sharedProfiles = (shared || []).map(mapProfile);
+          }
+        }
+
+        const mergedMap = new Map<string, Profile>();
+        for (const p of [...ownedProfiles, ...sharedProfiles]) {
+          mergedMap.set(p.id, p);
+        }
+
+        let activeFromLink: Profile | null = null;
+        if (sharedProfileId) {
+          const sharedLinkStart = shouldLogTimings() ? performance.now() : null;
+          const { data: sharedLinkData, error: sharedLinkError } = await supabase
+            .from("profiles")
+            .select(
+              "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
+            )
+            .eq("id", sharedProfileId)
+            .maybeSingle();
+          logTiming(`profiles shared link ${sharedProfileId}`, sharedLinkStart);
+
+          if (sharedLinkError || !sharedLinkData) {
+            setAccessDenied(true);
+            return;
+          }
+
+          const mapped = mapProfile(sharedLinkData);
+          const isLinkOwner = mapped.ownerId === user.id;
+          if (!isLinkOwner && mapped.visibility !== "public") {
+            setAccessDenied(true);
+            return;
+          }
+
+          mergedMap.set(mapped.id, mapped);
+          activeFromLink = mapped;
+
+          if (!isLinkOwner) {
+            await ensureCollaborator(mapped.id);
+          }
+        }
+
+        const merged = Array.from(mergedMap.values()).sort(
+          (a, b) => b.createdAt - a.createdAt
+        );
+
+        setProfiles(merged);
+
+        const images: Record<string, string> = {};
+        for (const profile of merged) {
+          if (profile.imageData) images[profile.id] = profile.imageData;
+        }
+        setProfileImages(images);
+
+        if (activeFromLink) {
+          setCurrentProfileId(activeFromLink.id);
+          setSwitchingProfile(true);
+          return;
+        }
+
+        const storedCurrentId = localStorage.getItem(storageKey("currentProfileId"));
+        if (storedCurrentId && merged.some((p) => p.id === storedCurrentId)) {
+          setCurrentProfileId(storedCurrentId);
+          setSwitchingProfile(true);
+        } else if (merged.length > 0) {
+          const firstProfileId = merged[0].id;
+          setCurrentProfileId(firstProfileId);
+          localStorage.setItem(storageKey("currentProfileId"), firstProfileId);
+          setSwitchingProfile(true);
         } else {
-          sharedProfiles = (shared || []).map(mapProfile);
+          setCurrentProfileId(null);
+          setSwitchingProfile(false);
         }
-      }
-
-      const mergedMap = new Map<string, Profile>();
-      for (const p of [...ownedProfiles, ...sharedProfiles]) {
-        mergedMap.set(p.id, p);
-      }
-
-      let activeFromLink: Profile | null = null;
-      if (sharedProfileId) {
-        const { data: sharedLinkData, error: sharedLinkError } = await supabase
-          .from("profiles")
-          .select(
-            "id, owner_id, name, description, visibility, image_data, punch_count, hug_count, kiss_count, notes_count, created_at"
-          )
-          .eq("id", sharedProfileId)
-          .maybeSingle();
-
-        if (sharedLinkError || !sharedLinkData) {
-          setAccessDenied(true);
-          return;
-        }
-
-        const mapped = mapProfile(sharedLinkData);
-        const isLinkOwner = mapped.ownerId === user.id;
-        if (!isLinkOwner && mapped.visibility !== "public") {
-          setAccessDenied(true);
-          return;
-        }
-
-        mergedMap.set(mapped.id, mapped);
-        activeFromLink = mapped;
-
-        if (!isLinkOwner) {
-          await ensureCollaborator(mapped.id);
-        }
-      }
-
-      const merged = Array.from(mergedMap.values()).sort(
-        (a, b) => b.createdAt - a.createdAt
-      );
-
-      setProfiles(merged);
-
-      const images: Record<string, string> = {};
-      for (const profile of merged) {
-        if (profile.imageData) images[profile.id] = profile.imageData;
-      }
-      setProfileImages(images);
-
-      if (activeFromLink) {
-        setCurrentProfileId(activeFromLink.id);
-        setSwitchingProfile(true);
-        return;
-      }
-
-      const storedCurrentId = localStorage.getItem(storageKey("currentProfileId"));
-      if (storedCurrentId && merged.some((p) => p.id === storedCurrentId)) {
-        setCurrentProfileId(storedCurrentId);
-        setSwitchingProfile(true);
-      } else if (merged.length > 0) {
-        const firstProfileId = merged[0].id;
-        setCurrentProfileId(firstProfileId);
-        localStorage.setItem(storageKey("currentProfileId"), firstProfileId);
-        setSwitchingProfile(true);
-      } else {
-        setCurrentProfileId(null);
-        setSwitchingProfile(false);
-      }
       } finally {
+        logTiming("profiles load total", totalStart);
         setProfilesLoading(false);
       }
     };
@@ -444,12 +493,24 @@ export default function CharacterPage() {
       const profile = profiles.find((p) => p.id === currentProfileId);
       if (profile) {
         setCharacterName(profile.name);
-        setImage(profile.imageData || null);
+        setImage(profile.imageData || profileImages[profile.id] || null);
         setSwitchingProfile(true);
         loadProfileNotes(currentProfileId).finally(() => setSwitchingProfile(false));
       }
     }
   }, [currentProfileId, profiles]);
+
+  useEffect(() => {
+    if (!currentProfileId || profiles.length === 0 || isGuestMode) return;
+    const profile = profiles.find((p) => p.id === currentProfileId);
+    if (!profile) return;
+    if (profile.imageData || profileImages[currentProfileId]) return;
+    loadProfileImage(currentProfileId).then((imageData) => {
+      if (imageData) {
+        setImage(imageData);
+      }
+    });
+  }, [currentProfileId, profiles, profileImages, isGuestMode]);
 
   const handleNewProfileImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -871,6 +932,28 @@ export default function CharacterPage() {
     setShareCopying(true);
     const sharePath = `/?profile=${activeProfile.id}`;
     const url = `${window.location.origin}/login?redirect=${encodeURIComponent(sharePath)}`;
+    if (isMobile && typeof navigator !== "undefined" && "share" in navigator) {
+      try {
+        await navigator.share({
+          title: `Feelability - ${activeProfile.name}`,
+          text: "View this profile on Feelability",
+          url,
+        });
+        setToastMessage("Share sheet opened");
+        setTimeout(() => setToastMessage(null), 2000);
+      } catch (error) {
+        const errorName = (error as DOMException)?.name;
+        if (errorName !== "AbortError") {
+          await navigator.clipboard.writeText(url);
+          setToastMessage("Link copied");
+          setTimeout(() => setToastMessage(null), 2000);
+        }
+      } finally {
+        setShareCopying(false);
+      }
+      return;
+    }
+
     await navigator.clipboard.writeText(url);
     setToastMessage("Link copied");
     setTimeout(() => setToastMessage(null), 2000);
@@ -2370,7 +2453,11 @@ export default function CharacterPage() {
                       : "bg-gray-900 text-white hover:bg-gray-800"
                   }`}
                 >
-                  {shareCopying ? "Copying..." : "Copy"}
+                  {shareCopying
+                    ? "Copying..."
+                    : isMobile && typeof navigator !== "undefined" && "share" in navigator
+                    ? "Share"
+                    : "Copy"}
                 </button>
               </div>
 
