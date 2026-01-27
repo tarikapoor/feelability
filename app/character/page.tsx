@@ -2398,7 +2398,7 @@ export default function CharacterPage() {
 
       {/* Share Modal (Owner Only) */}
       <AnimatePresence>
-        {showShareModal && activeProfile && (
+        {showShareModal && activeProfile && !isMobile && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2413,24 +2413,25 @@ export default function CharacterPage() {
               className="bg-white/95 backdrop-blur-md rounded-xl p-6 w-full max-w-md space-y-4 relative shadow-2xl border border-gray-100"
               onClick={(e) => e.stopPropagation()}
             >
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-800">Share profile</h3>
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  <path d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-              </button>
-
-              <h3 className="text-xl font-bold text-gray-800">Share profile</h3>
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              </div>
 
               {activeProfile.visibility !== "public" && (
                 <div className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
@@ -2453,11 +2454,7 @@ export default function CharacterPage() {
                       : "bg-gray-900 text-white hover:bg-gray-800"
                   }`}
                 >
-                  {shareCopying
-                    ? "Copying..."
-                    : isMobile && typeof navigator !== "undefined" && "share" in navigator
-                    ? "Share"
-                    : "Copy"}
+                  {shareCopying ? "Copying..." : "Copy"}
                 </button>
               </div>
 
@@ -2508,6 +2505,117 @@ export default function CharacterPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {showShareModal && activeProfile && isMobile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50"
+          >
+            <div
+              className="absolute inset-0 bg-black/30"
+              onClick={() => setShowShareModal(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md rounded-t-2xl max-h-[85vh] flex flex-col overflow-hidden"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">Share profile</h3>
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-4 space-y-4 overflow-y-auto">
+                {activeProfile.visibility !== "public" && (
+                  <div className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                    Set visibility to Public to allow others to access this profile.
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={`${typeof window !== "undefined" ? window.location.origin : ""}/character?profile=${activeProfile.id}`}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-700"
+                  />
+                  <button
+                    onClick={handleCopyShareLink}
+                    disabled={shareCopying}
+                    className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                      shareCopying
+                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                        : "bg-gray-900 text-white hover:bg-gray-800"
+                    }`}
+                  >
+                    {shareCopying
+                      ? "Copying..."
+                      : typeof navigator !== "undefined" && "share" in navigator
+                      ? "Share"
+                      : "Copy"}
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-gray-700">Collaborators</div>
+                  {collaborators.length === 0 ? (
+                    <div className="text-sm text-gray-500">No collaborators yet.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {collaborators.map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex items-center justify-between gap-3 p-2 rounded-lg bg-gray-50"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {c.avatar_url ? (
+                              <img
+                                src={c.avatar_url}
+                                alt={c.display_name || "Collaborator"}
+                                className="w-8 h-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs">
+                                ?
+                              </div>
+                            )}
+                            <div className="text-sm text-gray-700 truncate">
+                              {c.display_name || "Anonymous"}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveCollaborator(c.id)}
+                            disabled={collabActionId === c.id}
+                            className={`p-1.5 rounded transition-colors ${
+                              collabActionId === c.id ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-200"
+                            }`}
+                            title="Remove access"
+                          >
+                            {collabActionId === c.id ? (
+                              <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
+                            ) : (
+                              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </motion.div>
           </motion.div>
