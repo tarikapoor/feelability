@@ -1108,22 +1108,19 @@ export default function CharacterPage() {
 
       {/* Public/Private Toggle */}
       <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-        <span className="text-sm font-medium text-gray-700">Visibility</span>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              newProfileIsPublic ? "bg-pink-500" : "bg-gray-300"
+        <span className="text-sm font-medium text-gray-700">Make this profile public</span>
+        <button
+          onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            newProfileIsPublic ? "bg-pink-500" : "bg-gray-300"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              newProfileIsPublic ? "translate-x-6" : "translate-x-1"
             }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                newProfileIsPublic ? "translate-x-6" : "translate-x-1"
-              }`}
-            />
-          </button>
-          <span className="text-sm text-gray-600">{newProfileIsPublic ? "Public" : "Private"}</span>
-        </div>
+          />
+        </button>
       </div>
 
       {!isMobile && (
@@ -1957,17 +1954,19 @@ export default function CharacterPage() {
                   <div className={`text-[11px] px-2 py-0.5 rounded-full ${getNoteTagClasses(note.emotionType)}`}>
                     {getNoteHeaderText(note.emotionType)}
                   </div>
-                  {note.authorId === user?.id && (
+                  <div className="relative group">
                     <button
                       onClick={() => handleDeleteNote(note.id, note.authorId)}
-                      disabled={noteSaving}
+                      disabled={noteSaving || note.authorId !== user?.id}
                       className={`transition-colors ${
-                        noteSaving ? "text-gray-300 cursor-not-allowed" : "text-gray-500 hover:text-gray-700"
+                        noteSaving || note.authorId !== user?.id
+                          ? "text-gray-300 cursor-not-allowed"
+                          : "text-gray-500 hover:text-gray-700"
                       }`}
                       aria-label="Delete note"
-                      title="Delete note"
+                      title={note.authorId === user?.id ? "Delete note" : undefined}
                     >
-                      {noteSaving ? (
+                      {noteSaving && note.authorId === user?.id ? (
                         <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
                       ) : (
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
@@ -1979,7 +1978,12 @@ export default function CharacterPage() {
                         </svg>
                       )}
                     </button>
-                  )}
+                    {note.authorId !== user?.id && (
+                      <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                        Can only be deleted by the writer
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm text-gray-800 mt-2 break-words">{note.text}</p>
                 <div className="mt-2 text-xs text-gray-500 text-right">
@@ -2066,17 +2070,19 @@ export default function CharacterPage() {
                       <div className={`text-[11px] px-2 py-0.5 rounded-full ${getNoteTagClasses(note.emotionType)}`}>
                         {getNoteHeaderText(note.emotionType)}
                       </div>
-                      {note.authorId === user?.id && (
+                      <div className="relative group">
                         <button
                           onClick={() => handleDeleteNote(note.id, note.authorId)}
-                          disabled={noteSaving}
+                          disabled={noteSaving || note.authorId !== user?.id}
                           className={`transition-colors ${
-                            noteSaving ? "text-gray-300 cursor-not-allowed" : "text-gray-500 hover:text-gray-700"
+                            noteSaving || note.authorId !== user?.id
+                              ? "text-gray-300 cursor-not-allowed"
+                              : "text-gray-500 hover:text-gray-700"
                           }`}
                           aria-label="Delete note"
-                          title="Delete note"
+                          title={note.authorId === user?.id ? "Delete note" : undefined}
                         >
-                          {noteSaving ? (
+                          {noteSaving && note.authorId === user?.id ? (
                             <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
                           ) : (
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
@@ -2088,7 +2094,12 @@ export default function CharacterPage() {
                             </svg>
                           )}
                         </button>
-                      )}
+                        {note.authorId !== user?.id && (
+                          <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                            Can only be deleted by the writer
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <p className="text-sm text-gray-800 mt-2 break-words">{note.text}</p>
                     <div className="mt-2 text-xs text-gray-500 text-right">
