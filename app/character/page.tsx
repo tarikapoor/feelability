@@ -62,23 +62,10 @@ export default function CharacterPage() {
   const [collabActionId, setCollabActionId] = useState<string | null>(null);
   const [shareCopying, setShareCopying] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
-  const [undoToast, setUndoToast] = useState<{
-    note: Note;
-    profileId: string;
-    previousNotes: Note[];
-    previousProfiles: Profile[];
-    isGuest: boolean;
-  } | null>(null);
   const [isProfilesSheetOpen, setIsProfilesSheetOpen] = useState(false);
   const [sheetDragStartY, setSheetDragStartY] = useState<number | null>(null);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const undoToastRef = useRef<{
-    note: Note;
-    profileId: string;
-    previousNotes: Note[];
-    previousProfiles: Profile[];
-    isGuest: boolean;
-  } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deletingNotesRef = useRef<Record<string, boolean>>({});
   
   // Sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -509,6 +496,10 @@ export default function CharacterPage() {
         setCharacterName(profile.name);
         setImage(profile.imageData || profileImages[profile.id] || null);
         setSwitchingProfile(true);
+        if (deletingNotesRef.current[currentProfileId]) {
+          setSwitchingProfile(false);
+          return;
+        }
         loadProfileNotes(currentProfileId).finally(() => setSwitchingProfile(false));
       }
     }
@@ -869,50 +860,12 @@ export default function CharacterPage() {
     }
   }, [showWriteModal, noteText]);
 
-  const finalizePendingDelete = async () => {
-    const pending = undoToastRef.current;
-    if (!pending) return;
-    undoToastRef.current = null;
-    setUndoToast(null);
-
-    if (pending.isGuest) return;
-
-    const { error } = await supabase.from("profile_notes").delete().eq("id", pending.note.id);
-    if (error) {
-      console.error("Error deleting note:", error);
-      setNotes(sortNotesByDate(pending.previousNotes));
-      setProfiles(pending.previousProfiles);
-      return;
-    }
-
-    const updatedProfile = profiles.find((p) => p.id === pending.profileId);
-    if (updatedProfile) {
-      await supabase
-        .from("profiles")
-        .update({ notes_count: updatedProfile.notesCount })
-        .eq("id", pending.profileId);
-    }
-  };
-
-  const handleUndoDelete = () => {
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-    const pending = undoToastRef.current;
-    if (!pending) return;
-    setNotes(sortNotesByDate(pending.previousNotes));
-    setProfiles(pending.previousProfiles);
-    undoToastRef.current = null;
-    setUndoToast(null);
-  };
-
   const handleDeleteNote = async (id: string, authorId: string) => {
     if (!currentProfileId) return;
     if (!isGuestMode && (!user || authorId !== user.id)) return;
 
-    const previousNotes = notes;
-    const previousProfiles = profiles;
+    const previousNotes = [...notes];
+    const previousProfiles = [...profiles];
     const updatedNotes = sortNotesByDate(notes.filter((note) => note.id !== id));
     setNotes(updatedNotes);
 
@@ -921,20 +874,36 @@ export default function CharacterPage() {
     );
     setProfiles(updatedProfiles);
 
-    const note = previousNotes.find((n) => n.id === id);
-    if (note) {
-      const payload = {
-        note,
-        profileId: currentProfileId,
-        previousNotes,
-        previousProfiles,
-        isGuest: isGuestMode,
-      };
-      undoToastRef.current = payload;
-      setUndoToast(payload);
-      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = setTimeout(finalizePendingDelete, 4000);
+    if (isGuestMode) {
+      deletingNotesRef.current[currentProfileId] = false;
+      setToastMessage("Note deleted");
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setToastMessage(null), 2000);
+      return;
     }
+
+    deletingNotesRef.current[currentProfileId] = true;
+    const { error } = await supabase.from("profile_notes").delete().eq("id", id);
+    if (error) {
+      console.error("Error deleting note:", error);
+      setNotes(previousNotes);
+      setProfiles(previousProfiles);
+      deletingNotesRef.current[currentProfileId] = false;
+      return;
+    }
+
+    const updatedProfile = updatedProfiles.find((p) => p.id === currentProfileId);
+    if (updatedProfile) {
+      await supabase
+        .from("profiles")
+        .update({ notes_count: updatedProfile.notesCount })
+        .eq("id", currentProfileId);
+    }
+
+    deletingNotesRef.current[currentProfileId] = false;
+    setToastMessage("Note deleted");
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2000);
   };
 
   // Derive active profile from profiles array (single source of truth)
@@ -1954,19 +1923,22 @@ export default function CharacterPage() {
                   <div className={`text-[11px] px-2 py-0.5 rounded-full ${getNoteTagClasses(note.emotionType)}`}>
                     {getNoteHeaderText(note.emotionType)}
                   </div>
-                  <div className="relative group">
+                  {(() => {
+                    const canDelete = isGuestMode || note.authorId === user?.id;
+                    return (
+                      <div className="relative group">
                     <button
                       onClick={() => handleDeleteNote(note.id, note.authorId)}
-                      disabled={noteSaving || note.authorId !== user?.id}
+                      disabled={noteSaving || !canDelete}
                       className={`transition-colors ${
-                        noteSaving || note.authorId !== user?.id
+                        noteSaving || !canDelete
                           ? "text-gray-300 cursor-not-allowed"
                           : "text-gray-500 hover:text-gray-700"
                       }`}
                       aria-label="Delete note"
-                      title={note.authorId === user?.id ? "Delete note" : undefined}
+                      title={canDelete ? "Delete note" : undefined}
                     >
-                      {noteSaving && note.authorId === user?.id ? (
+                      {noteSaving && canDelete ? (
                         <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
                       ) : (
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
@@ -1978,12 +1950,14 @@ export default function CharacterPage() {
                         </svg>
                       )}
                     </button>
-                    {note.authorId !== user?.id && (
+                    {!canDelete && (
                       <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
                         Can only be deleted by the writer
                       </span>
                     )}
                   </div>
+                    );
+                  })()}
                 </div>
                 <p className="text-sm text-gray-800 mt-2 break-words">{note.text}</p>
                 <div className="mt-2 text-xs text-gray-500 text-right">
@@ -2070,19 +2044,22 @@ export default function CharacterPage() {
                       <div className={`text-[11px] px-2 py-0.5 rounded-full ${getNoteTagClasses(note.emotionType)}`}>
                         {getNoteHeaderText(note.emotionType)}
                       </div>
-                      <div className="relative group">
+                      {(() => {
+                        const canDelete = isGuestMode || note.authorId === user?.id;
+                        return (
+                          <div className="relative group">
                         <button
                           onClick={() => handleDeleteNote(note.id, note.authorId)}
-                          disabled={noteSaving || note.authorId !== user?.id}
+                          disabled={noteSaving || !canDelete}
                           className={`transition-colors ${
-                            noteSaving || note.authorId !== user?.id
+                            noteSaving || !canDelete
                               ? "text-gray-300 cursor-not-allowed"
                               : "text-gray-500 hover:text-gray-700"
                           }`}
                           aria-label="Delete note"
-                          title={note.authorId === user?.id ? "Delete note" : undefined}
+                          title={canDelete ? "Delete note" : undefined}
                         >
-                          {noteSaving && note.authorId === user?.id ? (
+                          {noteSaving && canDelete ? (
                             <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
                           ) : (
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
@@ -2094,12 +2071,14 @@ export default function CharacterPage() {
                             </svg>
                           )}
                         </button>
-                        {note.authorId !== user?.id && (
+                        {!canDelete && (
                           <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
                             Can only be deleted by the writer
                           </span>
                         )}
                       </div>
+                        );
+                      })()}
                     </div>
                     <p className="text-sm text-gray-800 mt-2 break-words">{note.text}</p>
                     <div className="mt-2 text-xs text-gray-500 text-right">
@@ -2815,26 +2794,6 @@ export default function CharacterPage() {
         )}
       </AnimatePresence>
 
-      {/* Undo Delete Toast */}
-      <AnimatePresence>
-        {undoToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-3"
-          >
-            <span className="text-sm">Note deleted</span>
-            <button
-              onClick={handleUndoDelete}
-              className="text-sm font-semibold text-pink-300 hover:text-pink-200"
-            >
-              Undo
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -2842,7 +2801,11 @@ export default function CharacterPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50"
+            className={`fixed z-50 rounded-lg bg-gray-800 px-4 py-2 text-white shadow-lg ${
+              isMobile
+                ? "bottom-8 left-1/2 -translate-x-1/2"
+                : "top-20 right-6"
+            }`}
           >
             {toastMessage}
           </motion.div>
