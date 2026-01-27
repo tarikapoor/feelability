@@ -61,10 +61,24 @@ export default function CharacterPage() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [collabActionId, setCollabActionId] = useState<string | null>(null);
   const [shareCopying, setShareCopying] = useState(false);
-  const [notePendingDeleteId, setNotePendingDeleteId] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [undoToast, setUndoToast] = useState<{
+    note: Note;
+    profileId: string;
+    previousNotes: Note[];
+    previousProfiles: Profile[];
+    isGuest: boolean;
+  } | null>(null);
   const [isProfilesSheetOpen, setIsProfilesSheetOpen] = useState(false);
   const [sheetDragStartY, setSheetDragStartY] = useState<number | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoToastRef = useRef<{
+    note: Note;
+    profileId: string;
+    previousNotes: Note[];
+    previousProfiles: Profile[];
+    isGuest: boolean;
+  } | null>(null);
   
   // Sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -855,45 +869,72 @@ export default function CharacterPage() {
     }
   }, [showWriteModal, noteText]);
 
-  const handleDeleteNote = async (id: string, authorId: string) => {
-    if (!currentProfileId) return;
-    if (isGuestMode) {
-      const updatedNotes = sortNotesByDate(notes.filter((note) => note.id !== id));
-      setNotes(updatedNotes);
-      const updatedProfiles = profiles.map((p) =>
-        p.id === currentProfileId ? { ...p, notesCount: Math.max(0, p.notesCount - 1) } : p
-      );
-      setProfiles(updatedProfiles);
-      setNotePendingDeleteId(null);
+  const finalizePendingDelete = async () => {
+    const pending = undoToastRef.current;
+    if (!pending) return;
+    undoToastRef.current = null;
+    setUndoToast(null);
+
+    if (pending.isGuest) return;
+
+    const { error } = await supabase.from("profile_notes").delete().eq("id", pending.note.id);
+    if (error) {
+      console.error("Error deleting note:", error);
+      setNotes(sortNotesByDate(pending.previousNotes));
+      setProfiles(pending.previousProfiles);
       return;
     }
-    if (!user || authorId !== user.id) return;
 
-    setNoteSaving(true);
+    const updatedProfile = profiles.find((p) => p.id === pending.profileId);
+    if (updatedProfile) {
+      await supabase
+        .from("profiles")
+        .update({ notes_count: updatedProfile.notesCount })
+        .eq("id", pending.profileId);
+    }
+  };
+
+  const handleUndoDelete = () => {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const pending = undoToastRef.current;
+    if (!pending) return;
+    setNotes(sortNotesByDate(pending.previousNotes));
+    setProfiles(pending.previousProfiles);
+    undoToastRef.current = null;
+    setUndoToast(null);
+  };
+
+  const handleDeleteNote = async (id: string, authorId: string) => {
+    if (!currentProfileId) return;
+    if (!isGuestMode && (!user || authorId !== user.id)) return;
+
     const previousNotes = notes;
+    const previousProfiles = profiles;
     const updatedNotes = sortNotesByDate(notes.filter((note) => note.id !== id));
     setNotes(updatedNotes);
-    setNotePendingDeleteId(null);
 
     const updatedProfiles = profiles.map((p) =>
       p.id === currentProfileId ? { ...p, notesCount: Math.max(0, p.notesCount - 1) } : p
     );
     setProfiles(updatedProfiles);
 
-    const { error } = await supabase.from("profile_notes").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting note:", error);
-      setNotes(sortNotesByDate(previousNotes));
+    const note = previousNotes.find((n) => n.id === id);
+    if (note) {
+      const payload = {
+        note,
+        profileId: currentProfileId,
+        previousNotes,
+        previousProfiles,
+        isGuest: isGuestMode,
+      };
+      undoToastRef.current = payload;
+      setUndoToast(payload);
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = setTimeout(finalizePendingDelete, 4000);
     }
-
-    const updatedProfile = updatedProfiles.find((p) => p.id === currentProfileId);
-    if (updatedProfile) {
-      await supabase
-        .from("profiles")
-        .update({ notes_count: updatedProfile.notesCount })
-        .eq("id", currentProfileId);
-    }
-    setNoteSaving(false);
   };
 
   // Derive active profile from profiles array (single source of truth)
@@ -1567,7 +1608,7 @@ export default function CharacterPage() {
           </div>
         )}
         {isGuestMode && (
-          <div className="fixed top-20 right-4 z-40 px-3 py-1 rounded-full bg-white/80 backdrop-blur-sm border border-gray-200 text-xs text-gray-600">
+          <div className="fixed top-20 left-4 z-40 px-3 py-1 rounded-full bg-white/80 backdrop-blur-sm border border-gray-200 text-xs text-gray-600">
             Guest mode
           </div>
         )}
@@ -1918,7 +1959,7 @@ export default function CharacterPage() {
                   </div>
                   {note.authorId === user?.id && (
                     <button
-                      onClick={() => setNotePendingDeleteId(note.id)}
+                      onClick={() => handleDeleteNote(note.id, note.authorId)}
                       disabled={noteSaving}
                       className={`transition-colors ${
                         noteSaving ? "text-gray-300 cursor-not-allowed" : "text-gray-500 hover:text-gray-700"
@@ -1944,25 +1985,6 @@ export default function CharacterPage() {
                 <div className="mt-2 text-xs text-gray-500 text-right">
                   {formatNoteDate(note.createdAt)}
                 </div>
-                {notePendingDeleteId === note.id && note.authorId === user?.id && (
-                  <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-gray-200 bg-white/80 px-2 py-1.5 text-xs">
-                    <span className="text-gray-600">Delete this note?</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setNotePendingDeleteId(null)}
-                        className="text-gray-500 hover:text-gray-700"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => handleDeleteNote(note.id, note.authorId)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                )}
               </motion.div>
             ))}
           </AnimatePresence>
@@ -2046,7 +2068,7 @@ export default function CharacterPage() {
                       </div>
                       {note.authorId === user?.id && (
                         <button
-                          onClick={() => setNotePendingDeleteId(note.id)}
+                          onClick={() => handleDeleteNote(note.id, note.authorId)}
                           disabled={noteSaving}
                           className={`transition-colors ${
                             noteSaving ? "text-gray-300 cursor-not-allowed" : "text-gray-500 hover:text-gray-700"
@@ -2072,25 +2094,6 @@ export default function CharacterPage() {
                     <div className="mt-2 text-xs text-gray-500 text-right">
                       {formatNoteDate(note.createdAt)}
                     </div>
-                    {notePendingDeleteId === note.id && note.authorId === user?.id && (
-                      <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-gray-200 bg-white/80 px-2 py-1.5 text-xs">
-                        <span className="text-gray-600">Delete this note?</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setNotePendingDeleteId(null)}
-                            className="text-gray-500 hover:text-gray-700"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => handleDeleteNote(note.id, note.authorId)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </motion.div>
                 ))
                 )}
@@ -2797,6 +2800,26 @@ export default function CharacterPage() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Undo Delete Toast */}
+      <AnimatePresence>
+        {undoToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-3"
+          >
+            <span className="text-sm">Note deleted</span>
+            <button
+              onClick={handleUndoDelete}
+              className="text-sm font-semibold text-pink-300 hover:text-pink-200"
+            >
+              Undo
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
