@@ -1679,7 +1679,7 @@ export default function CharacterPage() {
         )}
 
         {/* RIGHT PANEL - Character View */}
-        <div className="middle-section flex flex-col items-center justify-center h-full p-8 overflow-hidden">
+        <div className="middle-section flex flex-col items-center justify-center p-8 md:h-full md:overflow-hidden">
           <div className="w-full max-w-md space-y-8 relative">
         {image ? (
           <div className="relative space-y-4">
