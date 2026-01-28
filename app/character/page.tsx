@@ -6,13 +6,18 @@
  * Single source of truth: profiles[] + activeProfileId.
  * Profiles are loaded from Supabase only. Sharing/permissions must remain intact.
  */
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import Image from "next/image";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabaseClient";
 import type { Profile, Note } from "../types";
+
+const NotesPanel = dynamic(() => import("@/components/NotesPanel"), { ssr: false });
+const WriteNoteModal = dynamic(() => import("@/components/WriteNoteModal"), { ssr: false });
 
 export default function CharacterPage() {
   const router = useRouter();
@@ -184,6 +189,9 @@ export default function CharacterPage() {
 
   // Storage key helpers scoped per user (current profile pointer only)
   const storageKey = (base: string) => `u:${user?.id}:${base}`;
+  const profilesCacheKey = () => storageKey("profilesCache");
+  const profileImagesCacheKey = () => storageKey("profileImagesCache");
+  const notesCacheKey = (profileId: string) => storageKey(`notesCache:${profileId}`);
   const shouldLogTimings = () =>
     typeof window !== "undefined" &&
     window.localStorage.getItem("debug:timings") === "1";
@@ -293,7 +301,23 @@ export default function CharacterPage() {
       logTiming(`notes empty profile`, notesStart);
       return;
     }
-    setNotesLoading(true);
+    let hasCachedNotes = false;
+    try {
+      const cached = localStorage.getItem(notesCacheKey(profileId));
+      if (cached) {
+        const parsed = JSON.parse(cached) as Note[];
+        if (Array.isArray(parsed)) {
+          setNotes(parsed);
+          hasCachedNotes = true;
+          setNotesLoading(false);
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to read notes cache:", error);
+    }
+    if (!hasCachedNotes) {
+      setNotesLoading(true);
+    }
     let data: any = null;
     let error: any = null;
     ({ data, error } = await supabase
@@ -317,7 +341,13 @@ export default function CharacterPage() {
         emotionType: (n.emotion_type as Note["emotionType"]) || "feelings",
         createdAt: n.created_at ? new Date(n.created_at).getTime() : undefined,
       })) || [];
-    setNotes(sortNotesByDate(mapped));
+    const sorted = sortNotesByDate(mapped);
+    setNotes(sorted);
+    try {
+      localStorage.setItem(notesCacheKey(profileId), JSON.stringify(sorted));
+    } catch (error) {
+      console.warn("Failed to write notes cache:", error);
+    }
     setNotesLoading(false);
     logTiming(`notes fetch ${profileId}`, notesStart);
   };
@@ -358,7 +388,41 @@ export default function CharacterPage() {
     const loadProfiles = async () => {
       if (!user || isGuestMode) return;
       const totalStart = shouldLogTimings() ? performance.now() : null;
-      setProfilesLoading(true);
+      let hasCachedProfiles = false;
+      let cachedParsedProfiles: Profile[] | null = null;
+      try {
+        const cachedProfiles = localStorage.getItem(profilesCacheKey());
+        if (cachedProfiles) {
+          const parsed = JSON.parse(cachedProfiles) as Profile[];
+          if (Array.isArray(parsed)) {
+            cachedParsedProfiles = parsed;
+            setProfiles(parsed);
+            hasCachedProfiles = true;
+          }
+        }
+        const cachedImages = localStorage.getItem(profileImagesCacheKey());
+        if (cachedImages) {
+          const parsedImages = JSON.parse(cachedImages) as Record<string, string>;
+          if (parsedImages && typeof parsedImages === "object") {
+            setProfileImages(parsedImages);
+          }
+        }
+        if (hasCachedProfiles && cachedParsedProfiles && !sharedProfileId) {
+          const storedCurrentId = localStorage.getItem(storageKey("currentProfileId"));
+          if (storedCurrentId && cachedParsedProfiles.some((p) => p.id === storedCurrentId)) {
+            setCurrentProfileId(storedCurrentId);
+            setSwitchingProfile(true);
+          } else if (cachedParsedProfiles.length) {
+            const firstProfileId = cachedParsedProfiles[0].id;
+            setCurrentProfileId(firstProfileId);
+            localStorage.setItem(storageKey("currentProfileId"), firstProfileId);
+            setSwitchingProfile(true);
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to read profiles cache:", error);
+      }
+      setProfilesLoading(!hasCachedProfiles);
       setAccessDenied(false);
       try {
         const ownedSharedStart = shouldLogTimings() ? performance.now() : null;
@@ -453,12 +517,22 @@ export default function CharacterPage() {
         );
 
         setProfiles(merged);
+        try {
+          localStorage.setItem(profilesCacheKey(), JSON.stringify(merged));
+        } catch (error) {
+          console.warn("Failed to write profiles cache:", error);
+        }
 
         const images: Record<string, string> = {};
         for (const profile of merged) {
           if (profile.imageData) images[profile.id] = profile.imageData;
         }
         setProfileImages(images);
+        try {
+          localStorage.setItem(profileImagesCacheKey(), JSON.stringify(images));
+        } catch (error) {
+          console.warn("Failed to write profile image cache:", error);
+        }
 
         if (activeFromLink) {
           setCurrentProfileId(activeFromLink.id);
@@ -528,7 +602,7 @@ export default function CharacterPage() {
     }
   };
 
-  const openEditModal = (profileId: string) => {
+  const openEditModal = useCallback((profileId: string) => {
     const profile = profiles.find((p) => p.id === profileId);
     if (!profile) return;
     
@@ -538,7 +612,7 @@ export default function CharacterPage() {
     setNewProfileIsPublic(profile.visibility === "public");
     setNewProfileImage(profile.imageData || profileImages[profileId] || null);
     setShowProfileModal(true);
-  };
+  }, [profiles, profileImages]);
 
   const handleDeleteProfile = async (profileId: string) => {
     await supabase.from("profiles").delete().eq("id", profileId);
@@ -674,7 +748,7 @@ export default function CharacterPage() {
     }
   };
 
-  const switchProfile = async (profileId: string) => {
+  const switchProfile = useCallback(async (profileId: string) => {
     setCurrentProfileId(profileId);
     localStorage.setItem(storageKey("currentProfileId"), profileId);
     setSwitchingProfile(true);
@@ -684,7 +758,7 @@ export default function CharacterPage() {
       setIsMobileDrawerOpen(false);
       setIsProfilesSheetOpen(false);
     }
-  };
+  }, [isMobile, loadProfileNotes]);
 
   const handleKiss = async () => {
     if (isKissing || isPunching || isHugging || noteSaving || switchingProfile) return;
@@ -825,6 +899,11 @@ export default function CharacterPage() {
 
     const updatedNotes = sortNotesByDate([...notes, newNote]);
     setNotes(updatedNotes);
+    try {
+      localStorage.setItem(notesCacheKey(currentProfileId), JSON.stringify(updatedNotes));
+    } catch (error) {
+      console.warn("Failed to write notes cache:", error);
+    }
 
     const updatedProfiles = profiles.map((p) =>
       p.id === currentProfileId ? { ...p, notesCount: p.notesCount + 1 } : p
@@ -868,6 +947,13 @@ export default function CharacterPage() {
     const previousProfiles = [...profiles];
     const updatedNotes = sortNotesByDate(notes.filter((note) => note.id !== id));
     setNotes(updatedNotes);
+    if (!isGuestMode) {
+      try {
+        localStorage.setItem(notesCacheKey(currentProfileId), JSON.stringify(updatedNotes));
+      } catch (error) {
+        console.warn("Failed to write notes cache:", error);
+      }
+    }
 
     const updatedProfiles = profiles.map((p) =>
       p.id === currentProfileId ? { ...p, notesCount: Math.max(0, p.notesCount - 1) } : p
@@ -888,6 +974,13 @@ export default function CharacterPage() {
       console.error("Error deleting note:", error);
       setNotes(previousNotes);
       setProfiles(previousProfiles);
+      if (!isGuestMode) {
+        try {
+          localStorage.setItem(notesCacheKey(currentProfileId), JSON.stringify(previousNotes));
+        } catch (err) {
+          console.warn("Failed to restore notes cache:", err);
+        }
+      }
       deletingNotesRef.current[currentProfileId] = false;
       return;
     }
@@ -1024,10 +1117,14 @@ export default function CharacterPage() {
         <div className="border-2 border-dashed border-blue-200 rounded-lg p-4 text-center bg-gray-50">
           {newProfileImage ? (
             <div className="space-y-2">
-              <img
+              <Image
                 src={newProfileImage}
                 alt="Preview"
-                className="max-w-full max-h-32 mx-auto rounded-lg"
+                width={256}
+                height={128}
+                sizes="(max-width: 768px) 60vw, 256px"
+                className="max-w-full max-h-32 mx-auto rounded-lg object-contain"
+                unoptimized
               />
               <button
                 onClick={() => setNewProfileImage(null)}
@@ -1216,10 +1313,14 @@ export default function CharacterPage() {
               variants={scaleVariants}
             >
               <div className="w-full h-64 md:h-80 rounded-2xl overflow-hidden relative z-10 shadow-md">
-                <img
+                <Image
                   src={image}
                   alt={characterName || "Character"}
-                  className="w-full h-full object-contain object-center bg-white/70"
+                  fill
+                  sizes="(max-width: 768px) 90vw, 640px"
+                  className="object-contain object-center bg-white/70"
+                  priority
+                  unoptimized
                 />
               </div>
             </motion.div>
@@ -1433,97 +1534,112 @@ export default function CharacterPage() {
     </div>
   );
 
-  const profilesListContent = (
-    <div className="flex-1 overflow-y-auto p-4 space-y-2">
-      {profilesLoading ? (
-        [...Array(4)].map((_, i) => (
-          <div
-            key={`mobile-skeleton-${i}`}
-            className="w-full p-3 rounded-lg bg-white/70 border border-gray-100 animate-pulse"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-200" />
-              <div className="flex-1">
-                <div className="h-3 w-24 bg-gray-200 rounded" />
-                <div className="h-2 w-16 bg-gray-100 rounded mt-2" />
+  const profilesListContent = useMemo(
+    () => (
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        {profilesLoading ? (
+          [...Array(4)].map((_, i) => (
+            <div
+              key={`mobile-skeleton-${i}`}
+              className="w-full p-3 rounded-lg bg-white/70 border border-gray-100 animate-pulse"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gray-200" />
+                <div className="flex-1">
+                  <div className="h-3 w-24 bg-gray-200 rounded" />
+                  <div className="h-2 w-16 bg-gray-100 rounded mt-2" />
+                </div>
               </div>
             </div>
-          </div>
-        ))
-      ) : (
-        profiles.map((profile) => (
-          <div
-            key={profile.id}
-            className={`w-full p-4 rounded-xl transition-all flex items-center gap-3 border ${
-              currentProfileId === profile.id
-                ? "bg-white border-gray-300 shadow-sm"
-                : "bg-white/70 border-transparent hover:bg-white hover:border-gray-200"
-            }`}
-          >
-            <button
-              onClick={() => switchProfile(profile.id)}
-              className="flex-1 flex items-center gap-3 text-left min-w-0"
+          ))
+        ) : (
+          profiles.map((profile) => (
+            <div
+              key={profile.id}
+              className={`w-full p-4 rounded-xl transition-all flex items-center gap-3 border ${
+                currentProfileId === profile.id
+                  ? "bg-white border-gray-300 shadow-sm"
+                  : "bg-white/70 border-transparent hover:bg-white hover:border-gray-200"
+              }`}
             >
-              {profileImages[profile.id] ? (
-                <img
-                  src={profileImages[profile.id]}
-                  alt={profile.name}
-                  className="w-10 h-10 rounded-full object-contain bg-white flex-shrink-0"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+              <button
+                onClick={() => switchProfile(profile.id)}
+                className="flex-1 flex items-center gap-3 text-left min-w-0"
+              >
+                {profileImages[profile.id] ? (
+                  <Image
+                    src={profileImages[profile.id]}
+                    alt={profile.name}
+                    width={40}
+                    height={40}
+                    sizes="40px"
+                    className="w-10 h-10 rounded-full object-contain bg-white flex-shrink-0"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-800 truncate">{profile.name}</div>
+                  {profile.description && (
+                    <div className="text-xs text-gray-500 mt-0.5 truncate">{profile.description}</div>
+                  )}
+                </div>
+              </button>
+              {profile.ownerId === user?.id && (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditModal(profile.id);
+                    }}
+                    className="p-1.5 hover:bg-gray-200 rounded transition-colors"
+                    title="Edit profile"
+                  >
+                    <span className="text-lg">🖊️</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmProfileId(profile.id);
+                    }}
+                    className="p-1.5 hover:bg-gray-200 rounded transition-colors"
+                    title="Delete profile"
+                  >
+                    <span className="text-lg">🗑️</span>
+                  </button>
                 </div>
               )}
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-800 truncate">{profile.name}</div>
-                {profile.description && (
-                  <div className="text-xs text-gray-500 mt-0.5 truncate">{profile.description}</div>
-                )}
-              </div>
-            </button>
-            {profile.ownerId === user?.id && (
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openEditModal(profile.id);
-                  }}
-                  className="p-1.5 hover:bg-gray-200 rounded transition-colors"
-                  title="Edit profile"
-                >
-                  <span className="text-lg">🖊️</span>
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteConfirmProfileId(profile.id);
-                  }}
-                  className="p-1.5 hover:bg-gray-200 rounded transition-colors"
-                  title="Delete profile"
-                >
-                  <span className="text-lg">🗑️</span>
-                </button>
-              </div>
-            )}
-          </div>
-        ))
-      )}
+            </div>
+          ))
+        )}
 
-      <button
-        onClick={() => setShowProfileModal(true)}
-        className="w-full p-3 rounded-lg transition-all bg-gray-50 border-2 border-dashed border-gray-300 hover:bg-gray-100 hover:border-pink-200 flex items-center gap-3 text-left"
-      >
-        <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
-          <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-          </svg>
-        </div>
-        <div className="font-medium text-gray-800">New Profile</div>
-      </button>
-    </div>
+        <button
+          onClick={() => setShowProfileModal(true)}
+          className="w-full p-3 rounded-lg transition-all bg-gray-50 border-2 border-dashed border-gray-300 hover:bg-gray-100 hover:border-pink-200 flex items-center gap-3 text-left"
+        >
+          <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+            </svg>
+          </div>
+          <div className="font-medium text-gray-800">New Profile</div>
+        </button>
+      </div>
+    ),
+    [
+      profilesLoading,
+      profiles,
+      currentProfileId,
+      profileImages,
+      user?.id,
+      openEditModal,
+      switchProfile,
+    ]
   );
 
   if (accessDenied) {
@@ -1659,11 +1775,15 @@ export default function CharacterPage() {
                 variants={scaleVariants}
               >
                 <div className="w-full h-64 md:h-80 rounded-2xl overflow-hidden relative z-10 shadow-md">
-                <img
-                  src={image}
-                  alt={characterName || "Character"}
-                  className="w-full h-full object-contain object-center bg-white/70"
-                />
+                  <Image
+                    src={image}
+                    alt={characterName || "Character"}
+                    fill
+                    sizes="(max-width: 768px) 90vw, 640px"
+                    className="object-contain object-center bg-white/70"
+                    priority
+                    unoptimized
+                  />
                 </div>
               </motion.div>
 
@@ -1895,203 +2015,22 @@ export default function CharacterPage() {
         }
       `}</style>
 
-      {/* Sticky Notes - Desktop Only */}
-      {!isMobile && (
-        <div className="fixed right-4 top-4 bottom-4 w-64 flex flex-col items-end gap-3 overflow-y-auto overscroll-contain pt-20 pb-4 pr-1 pointer-events-none z-20 [scrollbar-width:thin] [scrollbar-color:#d1d5db_transparent]">
-          <AnimatePresence>
-            {notesLoading
-              ? [...Array(4)].map((_, i) => (
-                  <div
-                    key={`note-skel-desktop-${i}`}
-                    className="w-56 rounded-2xl border border-gray-100 bg-white/70 p-4 animate-pulse pointer-events-auto"
-                  >
-                    <div className="h-3 w-20 bg-gray-200 rounded" />
-                    <div className="h-3 w-full bg-gray-200 rounded mt-3" />
-                    <div className="h-3 w-5/6 bg-gray-200 rounded mt-2" />
-                  </div>
-                ))
-              : notes.map((note) => (
-              <motion.div
-                key={note.id}
-                initial={{ opacity: 0, x: 50, scale: 0.8 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 50, scale: 0.8 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="w-56 rounded-2xl shadow-sm p-4 relative pointer-events-auto border bg-white/70 backdrop-blur-sm border-gray-200"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className={`text-[11px] px-2 py-0.5 rounded-full ${getNoteTagClasses(note.emotionType)}`}>
-                    {getNoteHeaderText(note.emotionType)}
-                  </div>
-                  {(() => {
-                    const canDelete = isGuestMode || note.authorId === user?.id;
-                    return (
-                      <div className="relative group">
-                    <button
-                      onClick={() => handleDeleteNote(note.id, note.authorId)}
-                      disabled={noteSaving || !canDelete}
-                      className={`transition-colors ${
-                        noteSaving || !canDelete
-                          ? "text-gray-300 cursor-not-allowed"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                      aria-label="Delete note"
-                      title={canDelete ? "Delete note" : undefined}
-                    >
-                      {noteSaving && canDelete ? (
-                        <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M14 11v6" />
-                        </svg>
-                      )}
-                    </button>
-                    {!canDelete && (
-                      <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                        Can only be deleted by the writer
-                      </span>
-                    )}
-                  </div>
-                    );
-                  })()}
-                </div>
-                <p className="text-sm text-gray-800 mt-2 break-words">{note.text}</p>
-                <div className="mt-2 text-xs text-gray-500 text-right">
-                  {formatNoteDate(note.createdAt)}
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      )}
-
-      {/* Notes CTA - Mobile Only */}
-      {isMobile && notes.length > 0 && (
-        <button
-          onClick={() => setShowNotesSheet(true)}
-          className="fixed right-4 bottom-6 z-40 px-4 py-3 rounded-full bg-white/90 backdrop-blur-sm border border-gray-200 shadow-md text-sm font-medium text-gray-700"
-        >
-          Notes
-        </button>
-      )}
-
-      {/* Notes Bottom Sheet - Mobile Only */}
-      <AnimatePresence>
-        {isMobile && showNotesSheet && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50"
-          >
-            <div
-              className="absolute inset-0 bg-black/30"
-              onClick={() => setShowNotesSheet(false)}
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md rounded-t-2xl p-4 max-h-[80vh] flex flex-col overflow-hidden"
-              onTouchStart={(e) => setSheetDragStartY(e.touches[0].clientY)}
-              onTouchMove={(e) => {
-                if (sheetDragStartY && e.touches[0].clientY - sheetDragStartY > 80) {
-                  setShowNotesSheet(false);
-                  setSheetDragStartY(null);
-                }
-              }}
-              onTouchEnd={() => setSheetDragStartY(null)}
-            >
-              <div className="flex items-center justify-between pb-3">
-                <h3 className="text-lg font-semibold text-gray-800">Notes</h3>
-                <button
-                  onClick={() => setShowNotesSheet(false)}
-                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto overscroll-contain space-y-3 pr-1 [scrollbar-width:thin] [scrollbar-color:#d1d5db_transparent]">
-                {notesLoading ? (
-                  [...Array(4)].map((_, i) => (
-                    <div
-                      key={`note-skel-${i}`}
-                      className="rounded-2xl border border-gray-100 bg-white/70 p-4 animate-pulse"
-                    >
-                      <div className="h-3 w-20 bg-gray-200 rounded" />
-                      <div className="h-3 w-full bg-gray-200 rounded mt-3" />
-                      <div className="h-3 w-5/6 bg-gray-200 rounded mt-2" />
-                    </div>
-                  ))
-                ) : (
-                notes.map((note) => (
-                  <motion.div
-                    key={note.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    transition={{ duration: 0.2, ease: "easeOut" }}
-                    className="rounded-2xl shadow-sm p-4 relative border bg-white/70 backdrop-blur-sm border-gray-200"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className={`text-[11px] px-2 py-0.5 rounded-full ${getNoteTagClasses(note.emotionType)}`}>
-                        {getNoteHeaderText(note.emotionType)}
-                      </div>
-                      {(() => {
-                        const canDelete = isGuestMode || note.authorId === user?.id;
-                        return (
-                          <div className="relative group">
-                        <button
-                          onClick={() => handleDeleteNote(note.id, note.authorId)}
-                          disabled={noteSaving || !canDelete}
-                          className={`transition-colors ${
-                            noteSaving || !canDelete
-                              ? "text-gray-300 cursor-not-allowed"
-                              : "text-gray-500 hover:text-gray-700"
-                          }`}
-                          aria-label="Delete note"
-                          title={canDelete ? "Delete note" : undefined}
-                        >
-                          {noteSaving && canDelete ? (
-                            <span className="h-4 w-4 inline-block rounded-full border-2 border-gray-300 border-t-gray-500 animate-spin" />
-                          ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14 11v6" />
-                            </svg>
-                          )}
-                        </button>
-                        {!canDelete && (
-                          <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                            Can only be deleted by the writer
-                          </span>
-                        )}
-                      </div>
-                        );
-                      })()}
-                    </div>
-                    <p className="text-sm text-gray-800 mt-2 break-words">{note.text}</p>
-                    <div className="mt-2 text-xs text-gray-500 text-right">
-                      {formatNoteDate(note.createdAt)}
-                    </div>
-                  </motion.div>
-                ))
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <NotesPanel
+        isMobile={isMobile}
+        isGuestMode={isGuestMode}
+        notes={notes}
+        notesLoading={notesLoading}
+        noteSaving={noteSaving}
+        userId={user?.id}
+        showNotesSheet={showNotesSheet}
+        setShowNotesSheet={setShowNotesSheet}
+        sheetDragStartY={sheetDragStartY}
+        setSheetDragStartY={setSheetDragStartY}
+        handleDeleteNote={handleDeleteNote}
+        formatNoteDate={formatNoteDate}
+        getNoteTagClasses={getNoteTagClasses}
+        getNoteHeaderText={getNoteHeaderText}
+      />
 
       {/* Guest Conversion Prompt */}
       <AnimatePresence>
@@ -2464,10 +2403,14 @@ export default function CharacterPage() {
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           {c.avatar_url ? (
-                            <img
+                            <Image
                               src={c.avatar_url}
                               alt={c.display_name || "Collaborator"}
+                              width={32}
+                              height={32}
+                              sizes="32px"
                               className="w-8 h-8 rounded-full object-cover"
+                              unoptimized
                             />
                           ) : (
                             <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs">
@@ -2574,10 +2517,14 @@ export default function CharacterPage() {
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             {c.avatar_url ? (
-                              <img
+                              <Image
                                 src={c.avatar_url}
                                 alt={c.display_name || "Collaborator"}
+                                width={32}
+                                height={32}
+                                sizes="32px"
                                 className="w-8 h-8 rounded-full object-cover"
+                                unoptimized
                               />
                             ) : (
                               <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs">
@@ -2615,184 +2562,21 @@ export default function CharacterPage() {
         )}
       </AnimatePresence>
 
-      {/* Write Modal */}
-      <AnimatePresence>
-        {showWriteModal && !isMobile && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-            onClick={() => setShowWriteModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white/95 backdrop-blur-md rounded-xl p-6 w-full max-w-md space-y-4 relative shadow-2xl border border-pink-100"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-800">Just say it dont Keep it</h3>
-                <button
-                  onClick={() => setShowWriteModal(false)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path d="M6 18L18 6M6 6l12 12"></path>
-                  </svg>
-                </button>
-              </div>
-              <div className="space-y-2 mb-4">
-                <label className="text-sm text-gray-600">Emotion</label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { value: "anger", label: "Anger" },
-                    { value: "feelings", label: "Feelings" },
-                    { value: "appreciation", label: "Appreciation" },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() =>
-                        setNoteEmotionType(opt.value as "anger" | "feelings" | "appreciation")
-                      }
-                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                        noteEmotionType === opt.value
-                          ? "bg-pink-50 border-pink-200 text-gray-800"
-                          : "bg-white/80 border-gray-200 text-gray-600 hover:border-gray-300"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <textarea
-                ref={noteInputRef}
-                value={noteText}
-                onChange={(e) => {
-                  setNoteText(e.target.value);
-                  resizeNoteInput();
-                }}
-                placeholder="Write your note here..."
-                className="w-full px-4 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-32 resize-none placeholder:text-gray-400 bg-white/80 text-gray-800 overflow-y-auto"
-              />
-              <button
-                onClick={handleSaveNote}
-                disabled={!noteText.trim() || noteSaving}
-                className={`w-full py-2 px-4 rounded-lg font-medium transition-all ${
-                  noteText.trim() && !noteSaving
-                    ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                }`}
-              >
-                {noteSaving ? "Saving..." : "Save"}
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Write Bottom Sheet - Mobile Only */}
-      <AnimatePresence>
-        {showWriteModal && isMobile && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50"
-          >
-            <div
-              className="absolute inset-0 bg-black/30"
-              onClick={() => setShowWriteModal(false)}
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md rounded-t-2xl max-h-[80vh] flex flex-col overflow-hidden"
-              onTouchStart={(e) => setSheetDragStartY(e.touches[0].clientY)}
-              onTouchMove={(e) => {
-                if (sheetDragStartY && e.touches[0].clientY - sheetDragStartY > 80) {
-                  setShowWriteModal(false);
-                  setSheetDragStartY(null);
-                }
-              }}
-              onTouchEnd={() => setSheetDragStartY(null)}
-            >
-              <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-800">Just say it dont Keep it</h3>
-                <button
-                  onClick={() => setShowWriteModal(false)}
-                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="p-4 space-y-4 overflow-hidden">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-600">Emotion</label>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { value: "anger", label: "Anger" },
-                      { value: "feelings", label: "Feelings" },
-                      { value: "appreciation", label: "Appreciation" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() =>
-                          setNoteEmotionType(opt.value as "anger" | "feelings" | "appreciation")
-                        }
-                        className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                          noteEmotionType === opt.value
-                            ? "bg-pink-50 border-pink-200 text-gray-800"
-                            : "bg-white/80 border-gray-200 text-gray-600 hover:border-gray-300"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <textarea
-                  ref={noteInputRef}
-                  value={noteText}
-                  onChange={(e) => {
-                    setNoteText(e.target.value);
-                    resizeNoteInput();
-                  }}
-                  placeholder="Write your note here..."
-                  className="w-full px-4 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-32 resize-none placeholder:text-gray-400 bg-white/80 text-gray-800 overflow-y-auto max-h-[50vh]"
-                />
-                <button
-                  onClick={handleSaveNote}
-                  disabled={!noteText.trim() || noteSaving}
-                  className={`w-full py-2 px-4 rounded-lg font-medium transition-all ${
-                    noteText.trim() && !noteSaving
-                      ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
-                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  }`}
-                >
-                  {noteSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <WriteNoteModal
+        isOpen={showWriteModal}
+        isMobile={isMobile}
+        noteText={noteText}
+        setNoteText={setNoteText}
+        noteSaving={noteSaving}
+        noteEmotionType={noteEmotionType}
+        setNoteEmotionType={setNoteEmotionType}
+        setShowWriteModal={setShowWriteModal}
+        handleSaveNote={handleSaveNote}
+        noteInputRef={noteInputRef}
+        resizeNoteInput={resizeNoteInput}
+        sheetDragStartY={sheetDragStartY}
+        setSheetDragStartY={setSheetDragStartY}
+      />
 
       {/* Toast Notification */}
       <AnimatePresence>
