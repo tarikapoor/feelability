@@ -191,6 +191,7 @@ export default function CharacterPage() {
   const storageKey = (base: string) => `u:${user?.id}:${base}`;
   const profilesCacheKey = () => storageKey("profilesCache");
   const profileImagesCacheKey = () => storageKey("profileImagesCache");
+  const sharedProfilesCacheKey = () => storageKey("sharedProfilesCache");
   const notesCacheKey = (profileId: string) => storageKey(`notesCache:${profileId}`);
   const shouldLogTimings = () =>
     typeof window !== "undefined" &&
@@ -390,6 +391,7 @@ export default function CharacterPage() {
       const totalStart = shouldLogTimings() ? performance.now() : null;
       let hasCachedProfiles = false;
       let cachedParsedProfiles: Profile[] | null = null;
+      let cachedSharedProfiles: Profile[] = [];
       try {
         const cachedProfiles = localStorage.getItem(profilesCacheKey());
         if (cachedProfiles) {
@@ -405,6 +407,13 @@ export default function CharacterPage() {
           const parsedImages = JSON.parse(cachedImages) as Record<string, string>;
           if (parsedImages && typeof parsedImages === "object") {
             setProfileImages(parsedImages);
+          }
+        }
+        const cachedShared = localStorage.getItem(sharedProfilesCacheKey());
+        if (cachedShared) {
+          const parsedShared = JSON.parse(cachedShared) as Profile[];
+          if (Array.isArray(parsedShared)) {
+            cachedSharedProfiles = parsedShared;
           }
         }
         if (hasCachedProfiles && cachedParsedProfiles && !sharedProfileId) {
@@ -509,6 +518,22 @@ export default function CharacterPage() {
 
           if (!isLinkOwner) {
             await ensureCollaborator(mapped.id);
+            try {
+              const existingCache = localStorage.getItem(sharedProfilesCacheKey());
+              const parsedCache = existingCache ? (JSON.parse(existingCache) as Profile[]) : [];
+              const nextCache = Array.isArray(parsedCache)
+                ? [...parsedCache.filter((p) => p.id !== mapped.id), mapped]
+                : [mapped];
+              localStorage.setItem(sharedProfilesCacheKey(), JSON.stringify(nextCache));
+            } catch (error) {
+              console.warn("Failed to update shared profiles cache:", error);
+            }
+          }
+        }
+
+        for (const cached of cachedSharedProfiles) {
+          if (!mergedMap.has(cached.id)) {
+            mergedMap.set(cached.id, cached);
           }
         }
 
@@ -521,6 +546,12 @@ export default function CharacterPage() {
           localStorage.setItem(profilesCacheKey(), JSON.stringify(merged));
         } catch (error) {
           console.warn("Failed to write profiles cache:", error);
+        }
+        try {
+          const sharedCache = merged.filter((p) => p.ownerId !== user.id);
+          localStorage.setItem(sharedProfilesCacheKey(), JSON.stringify(sharedCache));
+        } catch (error) {
+          console.warn("Failed to write shared profiles cache:", error);
         }
 
         const images: Record<string, string> = {};
@@ -1024,6 +1055,15 @@ export default function CharacterPage() {
     setCollaborators(filtered);
   };
 
+  const shareDisabledMessage = "Enable sharing to add collaborators";
+  const canShareProfile = !!activeProfile && activeProfile.visibility === "public";
+
+  const showShareDisabledMessage = useCallback(() => {
+    setToastMessage(shareDisabledMessage);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2000);
+  }, [shareDisabledMessage]);
+
   const handleShareProfile = async () => {
     if (!activeProfile || !isOwner) return;
     setShowShareModal(true);
@@ -1174,7 +1214,7 @@ export default function CharacterPage() {
 
       {/* Public/Private Toggle */}
       <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-        <span className="text-sm font-medium text-gray-700">Make this profile public</span>
+        <span className="text-sm font-medium text-gray-700">Add collaborators</span>
         <button
           onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -1421,17 +1461,35 @@ export default function CharacterPage() {
             {characterName}
           </h2>
           {isOwner && (
-            <motion.button
-              onClick={handleShareProfile}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              title="Share profile"
-            >
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-            </motion.button>
+            <div className="relative group">
+              <motion.button
+                onClick={() => {
+                  if (!canShareProfile) {
+                    if (isMobile) {
+                      showShareDisabledMessage();
+                    }
+                    return;
+                  }
+                  handleShareProfile();
+                }}
+                className={`p-2 rounded-full transition-colors ${
+                  canShareProfile ? "hover:bg-gray-100" : "cursor-not-allowed opacity-40"
+                }`}
+                whileHover={canShareProfile ? { scale: 1.1 } : undefined}
+                whileTap={canShareProfile ? { scale: 0.9 } : undefined}
+                title={canShareProfile ? "Share profile" : undefined}
+                aria-disabled={!canShareProfile}
+              >
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+              </motion.button>
+              {!isMobile && !canShareProfile && (
+                <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                  {shareDisabledMessage}
+                </span>
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -1743,7 +1801,7 @@ export default function CharacterPage() {
                   title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                   <svg
-                    className={`w-5 h-5 text-gray-600 transition-transform ${isSidebarCollapsed ? '' : 'rotate-180'}`}
+                    className={`w-5 h-5 text-gray-600 transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1884,17 +1942,35 @@ export default function CharacterPage() {
                 {characterName}
               </h2>
               {isOwner && (
-                <motion.button
-                  onClick={handleShareProfile}
-                  className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  title="Share profile"
-                >
-                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                  </svg>
-                </motion.button>
+                <div className="relative group">
+                  <motion.button
+                    onClick={() => {
+                      if (!canShareProfile) {
+                        if (isMobile) {
+                          showShareDisabledMessage();
+                        }
+                        return;
+                      }
+                      handleShareProfile();
+                    }}
+                    className={`p-1.5 rounded-full transition-colors ${
+                      canShareProfile ? "hover:bg-gray-100" : "cursor-not-allowed opacity-40"
+                    }`}
+                    whileHover={canShareProfile ? { scale: 1.1 } : undefined}
+                    whileTap={canShareProfile ? { scale: 0.9 } : undefined}
+                    title={canShareProfile ? "Share profile" : undefined}
+                    aria-disabled={!canShareProfile}
+                  >
+                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                  </motion.button>
+                  {!isMobile && !canShareProfile && (
+                    <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                      {shareDisabledMessage}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             {activeProfile?.visibility === "public" && (
