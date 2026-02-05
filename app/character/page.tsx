@@ -50,6 +50,7 @@ export default function CharacterPage() {
   const [newProfileName, setNewProfileName] = useState("");
   const [newProfileDesc, setNewProfileDesc] = useState("");
   const [newProfileImage, setNewProfileImage] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
   const [newProfileIsPublic, setNewProfileIsPublic] = useState(false);
   const [showProfileSelector, setShowProfileSelector] = useState(false);
   const [profileImages, setProfileImages] = useState<Record<string, string>>({});
@@ -238,6 +239,23 @@ export default function CharacterPage() {
       prev.map((p) => (p.id === profileId ? { ...p, imageData } : p))
     );
     return imageData;
+  };
+
+  const uploadProfileImage = async (file: File) => {
+    if (!user) return null;
+    const fileExt = file.name.split(".").pop() || "jpg";
+    const path = `profiles/${user.id}/${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.${fileExt}`;
+    const { error } = await supabase.storage
+      .from("profile-images")
+      .upload(path, file, { upsert: true, cacheControl: "3600" });
+    if (error) {
+      console.error("Error uploading profile image:", error);
+      return null;
+    }
+    const { data } = supabase.storage.from("profile-images").getPublicUrl(path);
+    return data.publicUrl || null;
   };
 
   const sortNotesByDate = (items: Note[]) => {
@@ -625,11 +643,24 @@ export default function CharacterPage() {
   const handleNewProfileImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewProfileImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      if (isGuestMode || !user) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setNewProfileImage(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+      setImageUploading(true);
+      uploadProfileImage(file).then((url) => {
+        if (url) {
+          setNewProfileImage(url);
+        } else {
+          setToastMessage("Image upload failed");
+          setTimeout(() => setToastMessage(null), 2000);
+        }
+        setImageUploading(false);
+      });
     }
   };
 
@@ -1174,15 +1205,18 @@ export default function CharacterPage() {
               </button>
             </div>
           ) : (
-            <label className="cursor-pointer">
+            <label className={`cursor-pointer ${imageUploading ? "pointer-events-none opacity-60" : ""}`}>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleNewProfileImageUpload}
                 className="hidden"
+                disabled={imageUploading}
               />
               <div className="space-y-2">
-                <p className="text-gray-500 text-sm">Click to upload an image</p>
+                <p className="text-gray-500 text-sm">
+                  {imageUploading ? "Uploading image..." : "Click to upload an image"}
+                </p>
                 <p className="text-xs text-gray-400">PNG, JPG, or GIF</p>
               </div>
             </label>
@@ -1242,14 +1276,14 @@ export default function CharacterPage() {
           </button>
         <button
             onClick={createProfile}
-          disabled={!newProfileName.trim() || !newProfileImage || profileSaving}
+          disabled={!newProfileName.trim() || !newProfileImage || profileSaving || imageUploading}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            newProfileName.trim() && newProfileImage && !profileSaving
+            newProfileName.trim() && newProfileImage && !profileSaving && !imageUploading
                 ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
             }`}
           >
-          {profileSaving ? "Saving..." : editingProfileId ? "Save" : "Create"}
+          {profileSaving || imageUploading ? "Saving..." : editingProfileId ? "Save" : "Create"}
           </button>
         </div>
       )}
@@ -2389,14 +2423,14 @@ export default function CharacterPage() {
                 </button>
                 <button
                   onClick={createProfile}
-                  disabled={!newProfileName.trim() || !newProfileImage || profileSaving}
+                  disabled={!newProfileName.trim() || !newProfileImage || profileSaving || imageUploading}
                   className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all ${
-                    newProfileName.trim() && newProfileImage && !profileSaving
+                    newProfileName.trim() && newProfileImage && !profileSaving && !imageUploading
                       ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
                 >
-                  {profileSaving ? "Saving..." : editingProfileId ? "Save" : "Create"}
+                  {profileSaving || imageUploading ? "Saving..." : editingProfileId ? "Save" : "Create"}
                 </button>
               </div>
             </motion.div>

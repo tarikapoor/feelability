@@ -70,7 +70,7 @@ as $$
   );
 $$;
 
--- Profiles: owner can manage, anyone can read public profiles
+-- Profiles: owner can manage their own profiles
 create policy "profiles_owner_select"
   on public.profiles for select
   using (owner_id = auth.uid());
@@ -87,15 +87,23 @@ create policy "profiles_owner_delete"
   on public.profiles for delete
   using (owner_id = auth.uid());
 
+-- Profiles: authenticated users can read public profiles OR profiles they collaborate on
 create policy "profiles_public_select"
   on public.profiles for select
-  using (visibility = 'public');
+  using (
+    auth.uid() IS NOT NULL
+    and (
+      visibility = 'public'
+      or public.is_profile_collaborator(profiles.id, auth.uid())
+    )
+  );
 
--- Collaborators: only owners can view/manage, any authed user can add self to public
+-- Collaborators: owners can view all collaborators, users can view their own collaborator records
 create policy "collaborators_owner_select"
   on public.profile_collaborators for select
   using (
-    exists (
+    user_id = auth.uid()
+    or exists (
       select 1 from public.profiles p
       where p.id = profile_collaborators.profile_id
         and p.owner_id = auth.uid()
