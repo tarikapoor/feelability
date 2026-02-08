@@ -25,6 +25,14 @@ import {
   RATE_LIMITS,
 } from "@/lib/security";
 import { QUERY_LIMITS } from "@/lib/query-helpers";
+import {
+  isE2EEAvailable,
+  ensureUserEncryptionKeys,
+  getOrCreateProfileKeyForUser,
+  ensureKeySharesForCollaborators,
+  loadAndDecryptNotes,
+  createEncryptedNote,
+} from "@/lib/e2ee-notes";
 import type { Profile, Note } from "../types";
 
 const NotesPanel = dynamic(() => import("@/components/NotesPanel"), { ssr: false });
@@ -167,6 +175,11 @@ export default function CharacterPage() {
     setNotes([]);
     setProfilesLoading(false);
   }, [isGuestMode, guestProfile]);
+
+  useEffect(() => {
+    if (!user || isGuestMode || !isE2EEAvailable()) return;
+    ensureUserEncryptionKeys(supabase, user.id).catch(console.warn);
+  }, [user, isGuestMode]);
 
   useEffect(() => {
     if (isMobile) return;
@@ -331,6 +344,29 @@ export default function CharacterPage() {
       logTiming(`notes empty profile`, notesStart);
       return;
     }
+    const useE2EE = isE2EEAvailable() && !!user;
+
+    if (useE2EE) {
+      setNotesLoading(true);
+      const profile = profiles.find((p) => p.id === profileId);
+      const isOwner = !!profile && !!user && profile.ownerId === user.id;
+      await getOrCreateProfileKeyForUser(supabase, profileId, user.id, isOwner);
+      if (isOwner) {
+        await ensureKeySharesForCollaborators(supabase, profileId, user.id);
+      }
+      const decrypted = await loadAndDecryptNotes(
+        supabase,
+        profileId,
+        user!.id,
+        isOwner
+      );
+      const sorted = sortNotesByDate(decrypted);
+      setNotes(sorted);
+      setNotesLoading(false);
+      logTiming(`notes e2ee fetch ${profileId}`, notesStart);
+      return;
+    }
+
     let hasCachedNotes = false;
     try {
       const cached = localStorage.getItem(notesCacheKey(profileId));
@@ -352,7 +388,7 @@ export default function CharacterPage() {
     let error: any = null;
     ({ data, error } = await supabase
       .from("profile_notes")
-      .select("id, text, user_id, emotion_type, created_at")
+      .select("id, text, ciphertext, iv, user_id, emotion_type, created_at")
       .eq("profile_id", profileId)
       .order("created_at", { ascending: false })
       .limit(QUERY_LIMITS.NOTES_MAX));
@@ -367,7 +403,7 @@ export default function CharacterPage() {
     const mapped: Note[] =
       data?.map((n: any) => ({
         id: n.id,
-        text: n.text,
+        text: n.text ?? "[Unable to decrypt]",
         authorId: n.user_id,
         emotionType: (n.emotion_type as Note["emotionType"]) || "feelings",
         createdAt: n.created_at ? new Date(n.created_at).getTime() : undefined,
@@ -783,6 +819,9 @@ export default function CharacterPage() {
 
       if (!newProfileIsPublic) {
         await supabase.from("profile_collaborators").delete().eq("profile_id", editingProfileId);
+        if (isE2EEAvailable()) {
+          await supabase.from("profile_key_shares").delete().eq("profile_id", editingProfileId);
+        }
       }
 
       const updatedProfile = mapProfile(data);
@@ -966,13 +1005,51 @@ export default function CharacterPage() {
     if (!user) return;
     setNoteSaving(true);
 
+    const plaintext = noteText.trim();
+    const profile = profiles.find((p) => p.id === currentProfileId);
+    const isOwner = !!profile && profile.ownerId === user.id;
+
+    if (isE2EEAvailable()) {
+      const newNote = await createEncryptedNote(
+        supabase,
+        currentProfileId,
+        user.id,
+        plaintext,
+        noteEmotionType,
+        isOwner
+      );
+      if (!newNote) {
+        console.error("Failed to create encrypted note");
+        setNoteSaving(false);
+        return;
+      }
+      const updatedNotes = sortNotesByDate([...notes, newNote]);
+      setNotes(updatedNotes);
+      const updatedProfiles = profiles.map((p) =>
+        p.id === currentProfileId ? { ...p, notesCount: p.notesCount + 1 } : p
+      );
+      setProfiles(updatedProfiles);
+      const updatedProfile = updatedProfiles.find((p) => p.id === currentProfileId);
+      if (updatedProfile) {
+        await supabase
+          .from("profiles")
+          .update({ notes_count: updatedProfile.notesCount })
+          .eq("id", currentProfileId);
+      }
+      setNoteText("");
+      setNoteEmotionType("feelings");
+      setShowWriteModal(false);
+      setNoteSaving(false);
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     let { data, error } = await supabase
       .from("profile_notes")
       .insert({
         profile_id: currentProfileId,
         user_id: user.id,
-        text: noteText.trim(),
+        text: plaintext,
         emotion_type: noteEmotionType,
         created_at: nowIso,
       })
@@ -1171,8 +1248,16 @@ export default function CharacterPage() {
 
   const handleRemoveCollaborator = async (collabId: string) => {
     if (!activeProfile || !isOwner) return;
+    const collab = collaborators.find((c) => c.id === collabId);
     setCollabActionId(collabId);
     await supabase.from("profile_collaborators").delete().eq("id", collabId);
+    if (collab?.user_id && isE2EEAvailable()) {
+      await supabase
+        .from("profile_key_shares")
+        .delete()
+        .eq("profile_id", activeProfile.id)
+        .eq("user_id", collab.user_id);
+    }
     setCollaborators((prev) => prev.filter((c) => c.id !== collabId));
     setToastMessage("Access removed");
     setTimeout(() => setToastMessage(null), 2000);
