@@ -1,6 +1,6 @@
  "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Note } from "@/app/types";
 
@@ -21,6 +21,16 @@ type NotesPanelProps = {
   getNoteHeaderText: (emotionType?: Note["emotionType"]) => string;
 };
 
+const EncryptionInfoContent = () => (
+  <>
+    <h1 className="text-xl font-bold text-gray-800">Your notes are private</h1>
+    <h2 className="text-sm text-gray-600 leading-relaxed mt-2">
+      End-to-end encryption keeps your notes between you and the people you choose to collaborate with.
+      No one outside, not even the Feelability database, can read or share them.
+    </h2>
+  </>
+);
+
 const NotesPanel = ({
   isMobile,
   isGuestMode,
@@ -36,11 +46,33 @@ const NotesPanel = ({
   formatNoteDate,
   getNoteTagClasses,
   getNoteHeaderText,
-}: NotesPanelProps) => (
+}: NotesPanelProps) => {
+  const [showEncryptionInfo, setShowEncryptionInfo] = useState(false);
+
+  const EncryptionBanner = () => (
+    <div className="flex-shrink-0 w-full pointer-events-auto text-xs text-gray-600 bg-amber-50/90 border border-amber-100 rounded-lg px-3 py-2 mb-2">
+      <span>🔒 Notes are end-to-end encrypted. Only collaborators and you can read them, not even us. </span>
+      <button
+        type="button"
+        onClick={() => setShowEncryptionInfo(true)}
+        className="font-semibold text-gray-700 hover:underline focus:outline-none focus:underline"
+        aria-label="Learn more about encryption"
+      >
+        Learn more
+      </button>
+    </div>
+  );
+
+  return (
   <>
     {/* Sticky Notes - Desktop Only */}
     {!isMobile && (
-      <div className="fixed right-4 top-4 bottom-4 w-64 flex flex-col items-end gap-3 overflow-y-auto overscroll-contain pt-20 pb-4 pr-1 pointer-events-none z-20 [scrollbar-width:thin] [scrollbar-color:#d1d5db_transparent]">
+      <div className="fixed right-4 top-4 bottom-4 w-64 flex flex-col items-end pt-20 pb-4 pr-1 z-20">
+        <div className="w-56 flex flex-col flex-1 min-h-0">
+          <div className="flex-shrink-0 mb-2 pointer-events-auto">
+            <EncryptionBanner />
+          </div>
+          <div className="flex-1 overflow-y-auto overscroll-contain flex flex-col items-end gap-3 [scrollbar-width:thin] [scrollbar-color:#d1d5db_transparent] pointer-events-none">
         <AnimatePresence>
           {notesLoading
             ? [...Array(4)].map((_, i) => (
@@ -107,8 +139,71 @@ const NotesPanel = ({
                 );
               })}
         </AnimatePresence>
+          </div>
+        </div>
       </div>
     )}
+
+    {/* Encryption Info Modal - Desktop/Tablet */}
+    <AnimatePresence>
+      {!isMobile && showEncryptionInfo && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]"
+          onClick={() => setShowEncryptionInfo(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl border border-gray-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <EncryptionInfoContent />
+            <button
+              onClick={() => setShowEncryptionInfo(false)}
+              className="mt-4 w-full py-2.5 rounded-lg bg-green-100 text-green-800 font-medium hover:bg-green-200 transition-colors"
+            >
+              Got it
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Encryption Info Bottom Sheet - Mobile */}
+    <AnimatePresence>
+      {isMobile && showEncryptionInfo && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[60]"
+        >
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setShowEncryptionInfo(false)}
+          />
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl p-5 pb-8"
+          >
+            <EncryptionInfoContent />
+            <button
+              onClick={() => setShowEncryptionInfo(false)}
+              className="mt-4 w-full py-3 rounded-lg bg-green-100 text-green-800 font-medium hover:bg-green-200 transition-colors"
+            >
+              Got it
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
 
     {/* Notes CTA - Mobile Only */}
     {isMobile && notes.length > 0 && (
@@ -159,7 +254,10 @@ const NotesPanel = ({
                 </svg>
               </button>
             </div>
-            <div className="space-y-3 overflow-y-auto">
+            <div className="flex-shrink-0 mb-3">
+              <EncryptionBanner />
+            </div>
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0">
               {notesLoading ? (
                 [...Array(4)].map((_, i) => (
                   <div
@@ -232,6 +330,7 @@ const NotesPanel = ({
       )}
     </AnimatePresence>
   </>
-);
+  );
+};
 
 export default memo(NotesPanel);
