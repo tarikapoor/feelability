@@ -14,6 +14,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  validateProfileName,
+  validateProfileDescription,
+  validateNoteText,
+  validateEmotionType,
+  sanitizeText,
+  rateLimiter,
+  getRateLimitKey,
+  RATE_LIMITS,
+} from "@/lib/security";
+import { QUERY_LIMITS } from "@/lib/query-helpers";
 import type { Profile, Note } from "../types";
 
 const NotesPanel = dynamic(() => import("@/components/NotesPanel"), { ssr: false });
@@ -343,7 +354,8 @@ export default function CharacterPage() {
       .from("profile_notes")
       .select("id, text, user_id, emotion_type, created_at")
       .eq("profile_id", profileId)
-      .order("created_at", { ascending: false }));
+      .order("created_at", { ascending: false })
+      .limit(QUERY_LIMITS.NOTES_MAX));
 
     if (error) {
       console.error("Error loading notes:", error);
@@ -460,11 +472,13 @@ export default function CharacterPage() {
               "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
             )
             .eq("owner_id", user.id)
-            .order("created_at", { ascending: false }),
+            .order("created_at", { ascending: false })
+            .limit(QUERY_LIMITS.PROFILES_MAX),
           supabase
             .from("profile_collaborators")
             .select("profile_id")
-            .eq("user_id", user.id),
+            .eq("user_id", user.id)
+            .limit(QUERY_LIMITS.COLLABORATORS_MAX),
         ]);
         logTiming("profiles owned + collaborator ids", ownedSharedStart);
 
@@ -486,13 +500,14 @@ export default function CharacterPage() {
         let sharedProfiles: Profile[] = [];
         if (sharedProfileIds.length > 0) {
           const sharedProfilesStart = shouldLogTimings() ? performance.now() : null;
-          const { data: shared, error: sharedError } = await supabase
+          const { data: shared, error: sharedError } = await           supabase
             .from("profiles")
             .select(
               "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
             )
-            .in("id", sharedProfileIds)
-            .order("created_at", { ascending: false });
+            .in("id", sharedProfileIds.slice(0, QUERY_LIMITS.PROFILES_MAX))
+            .order("created_at", { ascending: false })
+            .limit(QUERY_LIMITS.PROFILES_MAX);
           logTiming("profiles shared fetch", sharedProfilesStart);
 
           if (sharedError) {
@@ -715,25 +730,44 @@ export default function CharacterPage() {
   const createProfile = async () => {
     if (profileSaving) return;
     if (isGuestMode || !newProfileName.trim() || !user || !newProfileImage) return;
-    if (newProfileName.trim().length > 30) {
-      setToastMessage("Profile name must be 30 characters or less");
-      setTimeout(() => setToastMessage(null), 2000);
-      return;
-    }
-    if (newProfileDesc.trim().length > 50) {
-      setToastMessage("Profile description must be 50 characters or less");
+
+    // Validate inputs
+    const nameValidation = validateProfileName(newProfileName);
+    if (!nameValidation.valid) {
+      setToastMessage(nameValidation.error || "Invalid profile name");
       setTimeout(() => setToastMessage(null), 2000);
       return;
     }
 
+    const descValidation = validateProfileDescription(newProfileDesc);
+    if (!descValidation.valid) {
+      setToastMessage(descValidation.error || "Invalid profile description");
+      setTimeout(() => setToastMessage(null), 2000);
+      return;
+    }
+
+    // Rate limiting check (client-side)
+    if (!editingProfileId) {
+      const rateLimitKey = getRateLimitKey(user.id, "profile_create");
+      if (!rateLimiter.checkLimit(rateLimitKey, RATE_LIMITS.PROFILE_CREATE_PER_MINUTE)) {
+        setToastMessage("Too many profiles created. Please wait a moment.");
+        setTimeout(() => setToastMessage(null), 2000);
+        return;
+      }
+    }
+
     setProfileSaving(true);
+
+    // Sanitize inputs
+    const sanitizedName = sanitizeText(newProfileName);
+    const sanitizedDesc = newProfileDesc ? sanitizeText(newProfileDesc) : null;
 
     if (editingProfileId) {
       const { data, error } = await supabase
         .from("profiles")
         .update({
-          name: newProfileName.trim(),
-          description: newProfileDesc.trim() || null,
+          name: sanitizedName,
+          description: sanitizedDesc,
           visibility: newProfileIsPublic ? "public" : "private",
           image_data: newProfileImage,
         })
@@ -772,8 +806,8 @@ export default function CharacterPage() {
         .from("profiles")
         .insert({
           owner_id: user.id,
-          name: newProfileName.trim(),
-          description: newProfileDesc.trim() || null,
+          name: sanitizedName,
+          description: sanitizedDesc,
           visibility: newProfileIsPublic ? "public" : "private",
           image_data: newProfileImage,
           punch_count: 0,
@@ -1075,7 +1109,8 @@ export default function CharacterPage() {
       .from("profile_collaborators")
       .select("id, user_id, display_name, avatar_url")
       .eq("profile_id", profileId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .limit(QUERY_LIMITS.COLLABORATORS_MAX);
 
     if (error) {
       console.error("Error loading collaborators:", error);

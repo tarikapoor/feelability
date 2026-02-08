@@ -1,3 +1,4 @@
+// @ts-nocheck - Standalone test script, not part of Next.js build; Supabase types not generated
 /**
  * RLS Policy Test Script
  * 
