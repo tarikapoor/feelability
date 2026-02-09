@@ -763,12 +763,11 @@ export default function CharacterPage() {
     delete newImages[profileId];
     setProfileImages(newImages);
     
-    // If deleting current profile, switch to first available
+    // If deleting current profile, switch to first available (effect will load notes)
     if (currentProfileId === profileId) {
       if (updated.length > 0) {
         setCurrentProfileId(updated[0].id);
         localStorage.setItem(storageKey("currentProfileId"), updated[0].id);
-        await loadProfileNotes(updated[0].id);
       } else {
         setCurrentProfileId(null);
         localStorage.removeItem(storageKey("currentProfileId"));
@@ -910,17 +909,16 @@ export default function CharacterPage() {
     }
   };
 
-  const switchProfile = useCallback(async (profileId: string) => {
+  const switchProfile = useCallback((profileId: string) => {
     setCurrentProfileId(profileId);
     localStorage.setItem(storageKey("currentProfileId"), profileId);
     setSwitchingProfile(true);
-    await loadProfileNotes(profileId);
-    // Close mobile drawer when profile is selected
+    // Effect will load notes when currentProfileId updates (single source of truth)
     if (isMobile) {
       setIsMobileDrawerOpen(false);
       setIsProfilesSheetOpen(false);
     }
-  }, [isMobile, loadProfileNotes]);
+  }, [isMobile]);
 
   const handleKiss = async () => {
     if (isKissing || isPunching || isHugging || noteSaving || switchingProfile) return;
