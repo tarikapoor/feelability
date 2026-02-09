@@ -70,6 +70,7 @@ export default function CharacterPage() {
   const [newProfileDesc, setNewProfileDesc] = useState("");
   const [newProfileImage, setNewProfileImage] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [newProfileIsPublic, setNewProfileIsPublic] = useState(false);
   const [showProfileSelector, setShowProfileSelector] = useState(false);
   const [profileImages, setProfileImages] = useState<Record<string, string>>({});
@@ -91,6 +92,8 @@ export default function CharacterPage() {
   const [sheetDragStartY, setSheetDragStartY] = useState<number | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deletingNotesRef = useRef<Record<string, boolean>>({});
+  const lastNotesProfileIdRef = useRef<string | null>(null);
+  const imageLoadInProgressRef = useRef<string | null>(null);
   
   // Sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -265,8 +268,10 @@ export default function CharacterPage() {
     return imageData;
   };
 
-  const uploadProfileImage = async (file: File) => {
-    if (!user) return null;
+  const uploadProfileImage = async (
+    file: File
+  ): Promise<{ url: string | null; sizeError?: boolean; formatError?: boolean }> => {
+    if (!user) return { url: null };
     const fileExt = file.name.split(".").pop() || "jpg";
     const path = `profiles/${user.id}/${Date.now()}-${Math.random()
       .toString(36)
@@ -276,10 +281,15 @@ export default function CharacterPage() {
       .upload(path, file, { upsert: true, cacheControl: "3600" });
     if (error) {
       console.error("Error uploading profile image:", error);
-      return null;
+      const msg = error.message?.toLowerCase() ?? "";
+      const isFormatError = msg.includes("mime") && msg.includes("not supported");
+      const isSizeError =
+        !isFormatError &&
+        (msg.includes("maximum") || msg.includes("exceeded") || msg.includes("size"));
+      return { url: null, sizeError: !!isSizeError, formatError: !!isFormatError };
     }
     const { data } = supabase.storage.from("profile-images").getPublicUrl(path);
-    return data.publicUrl || null;
+    return { url: data.publicUrl || null };
   };
 
   const sortNotesByDate = (items: Note[]) => {
@@ -664,19 +674,25 @@ export default function CharacterPage() {
 
   // Load profile data when currentProfileId or profiles change
   useEffect(() => {
-    if (currentProfileId && profiles.length > 0) {
-      const profile = profiles.find((p) => p.id === currentProfileId);
-      if (profile) {
-        setCharacterName(profile.name);
-        setImage(profile.imageData || profileImages[profile.id] || null);
-        setSwitchingProfile(true);
-        if (deletingNotesRef.current[currentProfileId]) {
-          setSwitchingProfile(false);
-          return;
-        }
-        loadProfileNotes(currentProfileId).finally(() => setSwitchingProfile(false));
-      }
+    if (!currentProfileId || profiles.length === 0) return;
+    const profile = profiles.find((p) => p.id === currentProfileId);
+    if (!profile) return;
+
+    setCharacterName(profile.name);
+    setImage(profile.imageData || profileImages[profile.id] || null);
+
+    if (deletingNotesRef.current[currentProfileId]) {
+      setSwitchingProfile(false);
+      return;
     }
+
+    if (lastNotesProfileIdRef.current === currentProfileId) return;
+    lastNotesProfileIdRef.current = currentProfileId;
+
+    setSwitchingProfile(true);
+    loadProfileNotes(currentProfileId).finally(() => {
+      setSwitchingProfile(false);
+    });
   }, [currentProfileId, profiles]);
 
   useEffect(() => {
@@ -684,16 +700,22 @@ export default function CharacterPage() {
     const profile = profiles.find((p) => p.id === currentProfileId);
     if (!profile) return;
     if (profile.imageData || profileImages[currentProfileId]) return;
-    loadProfileImage(currentProfileId).then((imageData) => {
-      if (imageData) {
-        setImage(imageData);
-      }
-    });
+    if (imageLoadInProgressRef.current === currentProfileId) return;
+    imageLoadInProgressRef.current = currentProfileId;
+    loadProfileImage(currentProfileId)
+      .then((imageData) => {
+        if (imageData) setImage(imageData);
+      })
+      .finally(() => {
+        imageLoadInProgressRef.current = null;
+      });
   }, [currentProfileId, profiles, profileImages, isGuestMode]);
 
   const handleNewProfileImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (file) {
+      setImageUploadError(null);
       if (isGuestMode || !user) {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -703,9 +725,13 @@ export default function CharacterPage() {
         return;
       }
       setImageUploading(true);
-      uploadProfileImage(file).then((url) => {
-        if (url) {
-          setNewProfileImage(url);
+      uploadProfileImage(file).then((result) => {
+        if (result.url) {
+          setNewProfileImage(result.url);
+        } else if (result.sizeError) {
+          setImageUploadError("Image cannot be more than 15 mb");
+        } else if (result.formatError) {
+          setImageUploadError("File format not supported");
         } else {
           setToastMessage("Image upload failed");
           setTimeout(() => setToastMessage(null), 2000);
@@ -761,6 +787,7 @@ export default function CharacterPage() {
     setNewProfileDesc("");
     setNewProfileImage(null);
     setNewProfileIsPublic(false);
+    setImageUploadError(null);
   };
 
   const createProfile = async () => {
@@ -1342,6 +1369,9 @@ export default function CharacterPage() {
             </label>
           )}
         </div>
+        {imageUploadError && (
+          <p className="mt-2 text-sm text-red-600">{imageUploadError}</p>
+        )}
       </div>
 
       <input
