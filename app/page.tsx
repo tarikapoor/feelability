@@ -1,7 +1,7 @@
 "use client";
 
-import CharacterPage from "./character/page";
+import LandingPage from "@/components/LandingPage";
 
 export default function Home() {
-  return <CharacterPage />;
+  return <LandingPage />;
 }

@@ -21,7 +21,7 @@ export default function Navbar() {
       <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <motion.button
-            onClick={() => router.push("/login")}
+            onClick={() => router.push("/")}
             className="flex items-center gap-2 font-semibold text-pink-600 hover:text-pink-700 transition-colors"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}

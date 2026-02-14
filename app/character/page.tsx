@@ -210,7 +210,7 @@ export default function CharacterPage() {
   // Redirect unauthenticated users
   useEffect(() => {
     if (!loading && !user && !isGuestMode) {
-      const redirectPath = sharedProfileId ? `/?profile=${sharedProfileId}` : "/";
+      const redirectPath = sharedProfileId ? `/app?profile=${sharedProfileId}` : "/app";
       router.replace(`/login?redirect=${encodeURIComponent(redirectPath)}`);
     }
   }, [loading, user, router, sharedProfileId, isGuestMode]);
@@ -1241,7 +1241,7 @@ export default function CharacterPage() {
   const handleCopyShareLink = async () => {
     if (!activeProfile) return;
     setShareCopying(true);
-    const sharePath = `/?profile=${activeProfile.id}`;
+    const sharePath = `/app?profile=${activeProfile.id}`;
     const url = `${window.location.origin}/login?redirect=${encodeURIComponent(sharePath)}`;
     if (isMobile && typeof navigator !== "undefined" && "share" in navigator) {
       try {
@@ -1291,7 +1291,7 @@ export default function CharacterPage() {
 
   const handleGuestContinue = () => {
     setShowGuestPrompt(false);
-    const redirectPath = "/?create=1";
+    const redirectPath = "/app?create=1";
     router.push(`/login?redirect=${encodeURIComponent(redirectPath)}`);
   };
 
@@ -1913,7 +1913,7 @@ export default function CharacterPage() {
             <div className="w-full px-4 sm:px-6 lg:px-8">
               <div className="flex items-center justify-between h-16">
                 <button
-                  onClick={() => router.push("/login")}
+                  onClick={() => router.push("/")}
                   className="flex items-center gap-2 font-semibold text-pink-600 hover:text-pink-700 transition-colors"
                 >
                   <span className="text-lg">💜</span>
