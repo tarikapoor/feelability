@@ -43,6 +43,7 @@ const structuredData = [
     name: "Feelability",
     url: siteUrl,
     applicationCategory: "LifestyleApplication",
+    operatingSystem: "Web",
     description:
       "Express how you really feel. Private notes, shared profiles, end-to-end encrypted.",
   },
