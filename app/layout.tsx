@@ -27,6 +27,27 @@ export const metadata: Metadata = {
   },
 };
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://feelability.co";
+
+const structuredData = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Feelability",
+    url: siteUrl,
+    description: "A safe space for your unspoken emotions.",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Feelability",
+    url: siteUrl,
+    applicationCategory: "LifestyleApplication",
+    description:
+      "Express how you really feel. Private notes, shared profiles, end-to-end encrypted.",
+  },
+];
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,6 +56,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <AuthProvider>{children}</AuthProvider>
         <Analytics />
         <SpeedInsights />
