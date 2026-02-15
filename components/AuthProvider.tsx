@@ -60,14 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 		[user, session, loading]
 	);
 
-	if (loading) {
-		return (
-			<div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-blue-50 via-pink-50 to-yellow-50">
-				<div className="h-12 w-12 rounded-full border-4 border-pink-200 border-t-pink-500 animate-spin" />
-			</div>
-		);
-	}
-
+	// Render children immediately to avoid blocking FCP/LCP. Auth state updates
+	// when getSession() resolves; components use loading when needed.
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
