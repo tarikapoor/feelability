@@ -11,10 +11,12 @@ export default function DeferredAnalytics() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const id = requestIdleCallback
+    const useIdle = typeof requestIdleCallback !== "undefined";
+    const id = useIdle
       ? requestIdleCallback(() => setMounted(true), { timeout: 2000 })
       : setTimeout(() => setMounted(true), 0);
-    return () => (requestIdleCallback ? cancelIdleCallback(id) : clearTimeout(id));
+    return () =>
+      useIdle ? cancelIdleCallback(id as number) : clearTimeout(id as ReturnType<typeof setTimeout>);
   }, []);
 
   if (!mounted) return null;
