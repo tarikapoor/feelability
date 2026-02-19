@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import Footer from "@/components/Footer";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -160,6 +161,8 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <Footer />
     </main>
   );
 }

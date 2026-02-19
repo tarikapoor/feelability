@@ -5,12 +5,20 @@ import DeferredAnalytics from "@/components/DeferredAnalytics";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://feelability.co"),
+  alternates: { canonical: "/" },
   title: {
     default: "Feelability - A Safe Space for Your Unspoken Emotions",
     template: "%s | Feelability",
   },
   description:
     "Vent, love, appreciate - express how you really feel about people in your life. Private notes, shared profiles, end-to-end encrypted. No judgment, just authenticity.",
+  keywords: [
+    "private journal",
+    "emotional journaling",
+    "end-to-end encrypted",
+    "self-reflection",
+  ],
+  robots: { index: true, follow: true },
   openGraph: {
     title: "Feelability - A Safe Space for Your Unspoken Emotions",
     description: "Express yourself freely. Private notes, shared profiles. End-to-end encrypted.",

@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { motion } from "framer-motion";
+import Footer from "@/components/Footer";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -125,6 +126,8 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      <Footer />
     </main>
   );
 }
