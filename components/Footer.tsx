@@ -3,7 +3,6 @@
 import Link from "next/link";
 
 export default function Footer() {
-  const currentYear = new Date().getFullYear();
 
   return (
     <footer className="mt-auto border-t border-gray-200 bg-white/70 backdrop-blur-sm">
@@ -28,9 +27,6 @@ export default function Footer() {
             </Link>
           </nav>
         </div>
-        <p className="mt-4 text-center sm:text-left text-xs text-gray-500">
-          © {currentYear} Feelability. All rights reserved.
-        </p>
       </div>
     </footer>
   );
