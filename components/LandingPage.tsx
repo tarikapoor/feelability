@@ -2,15 +2,27 @@
 
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { supabase } from "@/lib/supabaseClient";
 import Footer from "@/components/Footer";
 
 export default function LandingPage() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const siteUrl =
+    typeof window !== "undefined"
+      ? process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+      : process.env.NEXT_PUBLIC_SITE_URL || "";
 
   const handleLogout = async () => {
     await signOut();
     router.push("/");
+  };
+
+  const handleGoogleLogin = async (redirectPath = "/app") => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${siteUrl}${redirectPath}` },
+    });
   };
 
   return (
@@ -35,7 +47,7 @@ export default function LandingPage() {
             ) : (
               <>
                 <button
-                  onClick={() => router.push("/login")}
+                  onClick={() => handleGoogleLogin("/app")}
                   className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold shadow-md hover:from-pink-600 hover:to-purple-600 transition-colors"
                 >
                   Login
@@ -105,7 +117,7 @@ export default function LandingPage() {
             ) : (
               <>
                 <button
-                  onClick={() => router.push("/login")}
+                  onClick={() => handleGoogleLogin("/app")}
                   className="px-6 py-3 rounded-lg bg-gradient-to-r from-pink-500 to-purple-500 text-white font-semibold shadow-md hover:from-pink-600 hover:to-purple-600 transition-colors"
                 >
                   Login
