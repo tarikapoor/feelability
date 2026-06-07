@@ -2445,22 +2445,25 @@ export default function CharacterPage() {
                   This mode doesn&apos;t have any profiles yet. Start one to see it here.
                 </p>
                 <div className="space-y-3">
-                  <button
-                    onClick={() => openCreateModal("express")}
-                    className="w-full px-5 py-3 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors text-left"
-                  >
-                    <div className="font-semibold">Express about someone</div>
-                    <div className="text-sm text-pink-50">Create a private space to say what you feel.</div>
-                  </button>
-                  <button
-                    onClick={() => openCreateModal("mirror")}
-                    className="w-full px-5 py-3 rounded-lg border border-purple-200 text-purple-700 font-medium hover:bg-white transition-colors text-left"
-                  >
-                    <div className="font-semibold">Get feedback about yourself</div>
-                    <div className="text-sm text-purple-600">
-                      Create your public profile and let people share honest feedback.
-                    </div>
-                  </button>
+                  {profileFilter === "express" ? (
+                    <button
+                      onClick={() => openCreateModal("express")}
+                      className="w-full px-5 py-3 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors text-left"
+                    >
+                      <div className="font-semibold">Express about someone</div>
+                      <div className="text-sm text-pink-50">Create a private space to say what you feel.</div>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => openCreateModal("mirror")}
+                      className="w-full px-5 py-3 rounded-lg border border-purple-200 text-purple-700 font-medium hover:bg-white transition-colors text-left"
+                    >
+                      <div className="font-semibold">Get feedback about yourself</div>
+                      <div className="text-sm text-purple-600">
+                        Create your public profile and let people share honest feedback.
+                      </div>
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -2479,7 +2482,7 @@ export default function CharacterPage() {
         }
       `}</style>
 
-      {!isMirrorProfile && (
+      {!isMirrorProfile && profileFilter !== "mirror" && (
         <NotesPanel
           isMobile={isMobile}
           isGuestMode={isGuestMode}
