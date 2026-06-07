@@ -519,13 +519,19 @@ export default function CharacterPage() {
         }
         if (hasCachedProfiles && cachedParsedProfiles && !sharedProfileId) {
           const storedCurrentId = localStorage.getItem(storageKey("currentProfileId"));
-          if (storedCurrentId && cachedParsedProfiles.some((p) => p.id === storedCurrentId)) {
-            setCurrentProfileId(storedCurrentId);
+          const storedCachedProfile =
+            storedCurrentId
+              ? cachedParsedProfiles.find((p) => p.id === storedCurrentId)
+              : undefined;
+          if (storedCachedProfile) {
+            setCurrentProfileId(storedCachedProfile.id);
+            setProfileFilter(storedCachedProfile.profileType ?? "express");
             setSwitchingProfile(true);
           } else if (cachedParsedProfiles.length) {
-            const firstProfileId = cachedParsedProfiles[0].id;
-            setCurrentProfileId(firstProfileId);
-            localStorage.setItem(storageKey("currentProfileId"), firstProfileId);
+            const firstProfile = cachedParsedProfiles[0];
+            setCurrentProfileId(firstProfile.id);
+            setProfileFilter(firstProfile.profileType ?? "express");
+            localStorage.setItem(storageKey("currentProfileId"), firstProfile.id);
             setSwitchingProfile(true);
           }
         }
