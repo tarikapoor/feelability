@@ -27,6 +27,9 @@ export default function Footer() {
             </Link>
           </nav>
         </div>
+        <p className="mt-4 text-center text-sm text-gray-500">
+          Made with <span aria-hidden="true">💜</span> for the things left unsaid.
+        </p>
       </div>
     </footer>
   );

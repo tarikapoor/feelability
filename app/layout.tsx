@@ -7,21 +7,26 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://feelability.co"),
   alternates: { canonical: "/" },
   title: {
-    default: "Feelability - A Safe Space for Your Unspoken Emotions",
+    default: "Feelability — Private Emotional Journal & Anonymous Feedback App",
     template: "%s | Feelability",
   },
   description:
-    "Vent, love, appreciate - express how you really feel about people in your life. Private notes, shared profiles, end-to-end encrypted. No judgment, just authenticity.",
+    "Feelability is a private, end-to-end encrypted space to express what you feel about people in your life — and collect anonymous heartfelt feedback through your Mirror Profile. Say what you've always held back.",
   keywords: [
-    "private journal",
-    "emotional journaling",
-    "end-to-end encrypted",
-    "self-reflection",
+    "private emotional journal",
+    "anonymous feedback app",
+    "express feelings privately",
+    "end-to-end encrypted journal",
+    "emotional wellness app",
+    "mirror profile feedback",
+    "unspoken feelings",
+    "mental wellness journaling",
   ],
   robots: { index: true, follow: true },
   openGraph: {
-    title: "Feelability - A Safe Space for Your Unspoken Emotions",
-    description: "Express yourself freely. Private notes, shared profiles. End-to-end encrypted.",
+    title: "Feelability — Say What You've Always Held Back",
+    description:
+      "A private, encrypted space to express your real feelings — and hear what others feel about you anonymously.",
     url: "/",
     siteName: "Feelability",
     type: "website",
@@ -29,8 +34,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Feelability - A Safe Space for Your Unspoken Emotions",
-    description: "Express yourself freely. Private notes, shared profiles. End-to-end encrypted.",
+    title: "Feelability — Say What You've Always Held Back",
+    description:
+      "A private, encrypted space to express your real feelings — and hear what others feel about you anonymously.",
   },
 };
 
