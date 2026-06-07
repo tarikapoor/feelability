@@ -18,6 +18,8 @@ interface CreateProfileRequest {
   description?: string;
   visibility?: "public" | "private";
   imageUrl?: string;
+  bio?: string;
+  profileType?: "express" | "mirror";
 }
 
 const VALIDATION_LIMITS = {
@@ -145,11 +147,13 @@ serve(async (req) => {
 
     // Sanitize inputs
     const sanitizedName = sanitizeText(body.name, VALIDATION_LIMITS.PROFILE_NAME_MAX);
-    const sanitizedDesc = body.description 
+    const sanitizedDesc = body.description
       ? sanitizeText(body.description, VALIDATION_LIMITS.PROFILE_DESC_MAX)
       : null;
-    
-    const visibility = body.visibility === "public" ? "public" : "private";
+    const sanitizedBio = body.bio ? sanitizeText(body.bio, VALIDATION_LIMITS.PROFILE_DESC_MAX) : null;
+
+    const profileType = body.profileType === "mirror" ? "mirror" : "express";
+    const visibility = profileType === "mirror" ? "public" : body.visibility === "public" ? "public" : "private";
 
     // Create profile
     const { data, error } = await supabaseClient
@@ -157,11 +161,13 @@ serve(async (req) => {
       .insert({
         owner_id: user.id,
         name: sanitizedName,
-        description: sanitizedDesc,
+        description: profileType === "mirror" ? null : sanitizedDesc,
+        bio: profileType === "mirror" ? sanitizedBio : null,
+        profile_type: profileType,
         visibility,
         image_data: body.imageUrl || null,
       })
-      .select("id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at")
+      .select("id, owner_id, name, description, bio, profile_type, visibility, punch_count, hug_count, kiss_count, notes_count, created_at")
       .single();
 
     if (error) {

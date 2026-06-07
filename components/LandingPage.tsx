@@ -50,13 +50,13 @@ export default function LandingPage() {
                   onClick={() => handleGoogleLogin("/app")}
                   className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-purple-500 text-white text-sm font-semibold shadow-md hover:from-pink-600 hover:to-purple-600 transition-colors"
                 >
-                  Login
+                  Login with Google
                 </button>
                 <button
                   onClick={() => router.push("/app?guest=1")}
                   className="px-4 py-2 rounded-lg border border-purple-200 text-purple-700 text-sm font-semibold hover:bg-white transition-colors"
                 >
-                  Try it First
+                  Try Express Mode
                 </button>
               </>
             )}
@@ -67,17 +67,14 @@ export default function LandingPage() {
       <section className="px-6 pt-16 pb-10">
         <div className="max-w-6xl mx-auto text-center space-y-6">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-700 text-sm font-medium">
-            ✨ Express yourself freely
+            ✨ Express and reflect
           </div>
           <h1 className="text-4xl md:text-6xl font-extrabold text-gray-800">
-            A Safe Space for Your{" "}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">
-              Unspoken Emotions
-            </span>
+            Say what you feel. See how people feel about you.
           </h1>
           <p className="text-gray-600 max-w-3xl mx-auto text-lg">
-            Feelability is a private journal and emotional journaling site for self-reflection.
-            End-to-end encrypted so only you and your chosen collaborators can read your notes.
+            Feelability helps you privately express emotions about people in your life, or create a public
+            profile to collect anonymous feedback about yourself.
           </p>
 
           <div className="max-w-2xl mx-auto">
@@ -108,26 +105,27 @@ export default function LandingPage() {
                   Continue with existing profiles
                 </button>
                 <button
-                  onClick={() => router.push("/app?create=1")}
+                  onClick={() => router.push("/app?create=1&type=mirror")}
                   className="px-6 py-3 rounded-lg border border-purple-200 text-purple-700 font-semibold hover:bg-white transition-colors"
                 >
-                  Create new profile
+                  Create My Mirror Profile
                 </button>
               </>
             ) : (
               <>
                 <button
-                  onClick={() => handleGoogleLogin("/app")}
+                  onClick={() => router.push("/app?guest=1")}
                   className="px-6 py-3 rounded-lg bg-gradient-to-r from-pink-500 to-purple-500 text-white font-semibold shadow-md hover:from-pink-600 hover:to-purple-600 transition-colors"
                 >
-                  Login
+                  Try Express Mode
                 </button>
                 <button
-                  onClick={() => router.push("/app?guest=1")}
+                  onClick={() => handleGoogleLogin("/app?create=1&type=mirror")}
                   className="px-6 py-3 rounded-lg border border-purple-200 text-purple-700 font-semibold hover:bg-white transition-colors"
                 >
-                  Try it First →
+                  Create My Mirror Profile
                 </button>
+               
               </>
             )}
           </div>
@@ -144,7 +142,7 @@ export default function LandingPage() {
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center text-xl">
                 👤
               </div>
-              <h3 className="mt-4 text-lg font-semibold text-purple-700">Create Characters</h3>
+              <h3 className="mt-4 text-lg font-semibold text-purple-700">Create Express Profiles</h3>
               <p className="text-gray-600 mt-2">
                 Build profiles for people in your life. Each character becomes a safe space to
                 express how you truly feel about them.
@@ -164,10 +162,9 @@ export default function LandingPage() {
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-500 to-purple-500 text-white flex items-center justify-center text-xl">
                 🔗
               </div>
-              <h3 className="mt-4 text-lg font-semibold text-purple-700">Share Anonymously</h3>
+              <h3 className="mt-4 text-lg font-semibold text-purple-700">Collect Mirror Feedback</h3>
               <p className="text-gray-600 mt-2">
-                Choose to keep your feelings private or share profiles anonymously. You&apos;re in
-                complete control of your emotional journey.
+                Create a public mirror profile so people can share thoughtful, anonymous feedback.
               </p>
             </div>
           </div>

@@ -5,6 +5,8 @@ create table if not exists public.profiles (
   owner_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   description text,
+  bio text,
+  profile_type text not null default 'express' check (profile_type in ('express', 'mirror')),
   visibility text not null default 'private' check (visibility in ('public', 'private')),
   image_data text,
   punch_count int not null default 0,
@@ -33,9 +35,25 @@ create table if not exists public.profile_notes (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.reviews (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  rating int not null check (rating between 1 and 5),
+  review_text text not null,
+  category text not null default 'just_saying',
+  status text not null default 'approved',
+  submission_id uuid,
+  reviewer_user_id uuid references auth.users(id) on delete set null,
+  reviewer_fingerprint text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.reviews add column if not exists submission_id uuid;
+
 alter table public.profiles enable row level security;
 alter table public.profile_collaborators enable row level security;
 alter table public.profile_notes enable row level security;
+alter table public.reviews enable row level security;
 
 -- Drop existing policies for idempotent re-run
 drop policy if exists "profiles_owner_select" on public.profiles;
@@ -44,6 +62,7 @@ drop policy if exists "profiles_owner_update" on public.profiles;
 drop policy if exists "profiles_owner_delete" on public.profiles;
 drop policy if exists "profiles_public_collab_select" on public.profiles;
 drop policy if exists "profiles_public_select" on public.profiles;
+drop policy if exists "profiles_public_mirror_anon_select" on public.profiles;
 drop policy if exists "profiles_owner_or_collab_update" on public.profiles;
 
 drop policy if exists "collaborators_owner_select" on public.profile_collaborators;
@@ -53,6 +72,10 @@ drop policy if exists "collaborators_public_insert" on public.profile_collaborat
 drop policy if exists "notes_owner_or_collab_select" on public.profile_notes;
 drop policy if exists "notes_owner_or_collab_insert" on public.profile_notes;
 drop policy if exists "notes_owner_or_collab_delete" on public.profile_notes;
+
+drop policy if exists "reviews_public_select" on public.reviews;
+drop policy if exists "reviews_public_insert" on public.reviews;
+drop policy if exists "reviews_owner_delete" on public.reviews;
 
 -- Helper to avoid RLS recursion
 drop function if exists public.is_profile_collaborator(uuid, uuid);
@@ -96,6 +119,14 @@ create policy "profiles_public_select"
       visibility = 'public'
       or public.is_profile_collaborator(profiles.id, auth.uid())
     )
+  );
+
+-- Profiles: allow anonymous read of public mirror profiles
+create policy "profiles_public_mirror_anon_select"
+  on public.profiles for select
+  using (
+    visibility = 'public'
+    and profile_type = 'mirror'
   );
 
 -- Collaborators: owners can view all collaborators, users can view their own collaborator records
@@ -179,5 +210,41 @@ create policy "profiles_owner_or_collab_update"
     or (
       visibility = 'public'
       and public.is_profile_collaborator(profiles.id, auth.uid())
+    )
+  );
+
+-- Reviews: public read approved reviews on public mirror profiles
+create policy "reviews_public_select"
+  on public.reviews for select
+  using (
+    status = 'approved'
+    and exists (
+      select 1 from public.profiles p
+      where p.id = reviews.profile_id
+        and p.visibility = 'public'
+        and p.profile_type = 'mirror'
+    )
+  );
+
+-- Reviews: public insert only for public mirror profiles
+create policy "reviews_public_insert"
+  on public.reviews for insert
+  with check (
+    exists (
+      select 1 from public.profiles p
+      where p.id = reviews.profile_id
+        and p.visibility = 'public'
+        and p.profile_type = 'mirror'
+    )
+  );
+
+-- Reviews: owners can delete
+create policy "reviews_owner_delete"
+  on public.reviews for delete
+  using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = reviews.profile_id
+        and p.owner_id = auth.uid()
     )
   );

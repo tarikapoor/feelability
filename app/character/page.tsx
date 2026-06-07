@@ -33,7 +33,7 @@ import {
   loadAndDecryptNotes,
   createEncryptedNote,
 } from "@/lib/e2ee-notes";
-import type { Profile, Note } from "../types";
+import type { Profile, Note, Review } from "../types";
 
 const NotesPanel = dynamic(() => import("@/components/NotesPanel"), { ssr: false });
 const WriteNoteModal = dynamic(() => import("@/components/WriteNoteModal"), { ssr: false });
@@ -45,6 +45,7 @@ export default function CharacterPage() {
   const sharedProfileId = searchParams.get("profile");
   const isGuestMode = !user && searchParams.get("guest") === "1";
   const shouldPromptCreate = searchParams.get("create") === "1";
+  const createProfileType = searchParams.get("type") === "mirror" ? "mirror" : "express";
   const [guestSeed] = useState(() => Math.floor(Math.random() * 1000000));
   const guestProfile = useMemo<Profile>(
     () => ({
@@ -52,6 +53,7 @@ export default function CharacterPage() {
       ownerId: "guest",
       name: "John Doe",
       description: "Guest mode",
+      profileType: "express",
       visibility: "private",
       createdAt: Date.now(),
       punchCount: 0,
@@ -68,10 +70,12 @@ export default function CharacterPage() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [newProfileName, setNewProfileName] = useState("");
   const [newProfileDesc, setNewProfileDesc] = useState("");
+  const [newProfileBio, setNewProfileBio] = useState("");
   const [newProfileImage, setNewProfileImage] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [newProfileIsPublic, setNewProfileIsPublic] = useState(false);
+  const [newProfileType, setNewProfileType] = useState<"express" | "mirror">("express");
   const [showProfileSelector, setShowProfileSelector] = useState(false);
   const [profileImages, setProfileImages] = useState<Record<string, string>>({});
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
@@ -85,6 +89,8 @@ export default function CharacterPage() {
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [switchingProfile, setSwitchingProfile] = useState(false);
   const [noteSaving, setNoteSaving] = useState(false);
+  const [mirrorReviews, setMirrorReviews] = useState<Review[]>([]);
+  const [mirrorReviewsLoading, setMirrorReviewsLoading] = useState(false);
   const [collabActionId, setCollabActionId] = useState<string | null>(null);
   const [shareCopying, setShareCopying] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -121,6 +127,7 @@ export default function CharacterPage() {
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
   const [hasAutoOpenedCreate, setHasAutoOpenedCreate] = useState(false);
+  const [profileFilter, setProfileFilter] = useState<"express" | "mirror">("express");
 
   // Mobile detection
   useEffect(() => {
@@ -193,19 +200,31 @@ export default function CharacterPage() {
     };
   }, [isMobile]);
 
+  const resetEditMode = () => {
+    setEditingProfileId(null);
+    setNewProfileName("");
+    setNewProfileDesc("");
+    setNewProfileBio("");
+    setNewProfileImage(null);
+    setNewProfileIsPublic(false);
+    setNewProfileType("express");
+    setImageUploadError(null);
+  };
+
+  const openCreateModal = useCallback((type: "express" | "mirror") => {
+    resetEditMode();
+    setNewProfileType(type);
+    setNewProfileIsPublic(type === "mirror");
+    setShowProfileModal(true);
+  }, []);
+
   useEffect(() => {
-    if (
-      hasAutoOpenedCreate ||
-      !user ||
-      profilesLoading ||
-      profiles.length !== 0 ||
-      !shouldPromptCreate
-    ) {
+    if (hasAutoOpenedCreate || !user || profilesLoading || !shouldPromptCreate) {
       return;
     }
-    setShowProfileModal(true);
+    openCreateModal(createProfileType);
     setHasAutoOpenedCreate(true);
-  }, [hasAutoOpenedCreate, user, profilesLoading, profiles.length, shouldPromptCreate]);
+  }, [hasAutoOpenedCreate, user, profilesLoading, shouldPromptCreate, createProfileType, openCreateModal]);
 
   // Redirect unauthenticated users
   useEffect(() => {
@@ -235,6 +254,8 @@ export default function CharacterPage() {
     ownerId: p.owner_id,
     name: p.name,
     description: p.description || undefined,
+    bio: p.bio || undefined,
+    profileType: p.profile_type ?? "express",
     visibility: p.visibility === "public" ? "public" : "private",
     imageData: p.image_data || null,
     createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
@@ -473,8 +494,12 @@ export default function CharacterPage() {
         if (cachedProfiles) {
           const parsed = JSON.parse(cachedProfiles) as Profile[];
           if (Array.isArray(parsed)) {
-            cachedParsedProfiles = parsed;
-            setProfiles(parsed);
+            const normalized = parsed.map((profile) => ({
+              ...profile,
+              profileType: profile.profileType ?? "express",
+            }));
+            cachedParsedProfiles = normalized;
+            setProfiles(normalized);
             hasCachedProfiles = true;
           }
         }
@@ -515,7 +540,7 @@ export default function CharacterPage() {
           supabase
             .from("profiles")
             .select(
-              "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
+            "id, owner_id, name, description, bio, profile_type, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
             )
             .eq("owner_id", user.id)
             .order("created_at", { ascending: false })
@@ -532,7 +557,12 @@ export default function CharacterPage() {
         const { data: sharedIds, error: sharedIdsError } = sharedIdsResult;
 
         if (ownedError) {
-          console.error("Error loading owned profiles:", ownedError);
+          console.error("Error loading owned profiles:", {
+            message: ownedError.message,
+            code: ownedError.code,
+            details: ownedError.details,
+            hint: ownedError.hint,
+          });
           return;
         }
 
@@ -549,7 +579,7 @@ export default function CharacterPage() {
           const { data: shared, error: sharedError } = await           supabase
             .from("profiles")
             .select(
-              "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
+            "id, owner_id, name, description, bio, profile_type, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
             )
             .in("id", sharedProfileIds.slice(0, QUERY_LIMITS.PROFILES_MAX))
             .order("created_at", { ascending: false })
@@ -574,7 +604,7 @@ export default function CharacterPage() {
           const { data: sharedLinkData, error: sharedLinkError } = await supabase
             .from("profiles")
             .select(
-              "id, owner_id, name, description, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
+            "id, owner_id, name, description, bio, profile_type, visibility, punch_count, hug_count, kiss_count, notes_count, created_at"
             )
             .eq("id", sharedProfileId)
             .maybeSingle();
@@ -619,22 +649,26 @@ export default function CharacterPage() {
         const merged = Array.from(mergedMap.values()).sort(
           (a, b) => b.createdAt - a.createdAt
         );
+        const normalizedMerged = merged.map((profile) => ({
+          ...profile,
+          profileType: profile.profileType ?? "express",
+        }));
 
-        setProfiles(merged);
+        setProfiles(normalizedMerged);
         try {
-          localStorage.setItem(profilesCacheKey(), JSON.stringify(merged));
+          localStorage.setItem(profilesCacheKey(), JSON.stringify(normalizedMerged));
         } catch (error) {
           console.warn("Failed to write profiles cache:", error);
         }
         try {
-          const sharedCache = merged.filter((p) => p.ownerId !== user.id);
+          const sharedCache = normalizedMerged.filter((p) => p.ownerId !== user.id);
           localStorage.setItem(sharedProfilesCacheKey(), JSON.stringify(sharedCache));
         } catch (error) {
           console.warn("Failed to write shared profiles cache:", error);
         }
 
         const images: Record<string, string> = {};
-        for (const profile of merged) {
+        for (const profile of normalizedMerged) {
           if (profile.imageData) images[profile.id] = profile.imageData;
         }
         setProfileImages(images);
@@ -646,17 +680,23 @@ export default function CharacterPage() {
 
         if (activeFromLink) {
           setCurrentProfileId(activeFromLink.id);
+          setProfileFilter(activeFromLink.profileType ?? "express");
           setSwitchingProfile(true);
           return;
         }
 
         const storedCurrentId = localStorage.getItem(storageKey("currentProfileId"));
-        if (storedCurrentId && merged.some((p) => p.id === storedCurrentId)) {
+        if (storedCurrentId && normalizedMerged.some((p) => p.id === storedCurrentId)) {
+          const storedProfile = normalizedMerged.find((p) => p.id === storedCurrentId);
           setCurrentProfileId(storedCurrentId);
+          if (storedProfile?.profileType) {
+            setProfileFilter(storedProfile.profileType);
+          }
           setSwitchingProfile(true);
-        } else if (merged.length > 0) {
-          const firstProfileId = merged[0].id;
+        } else if (normalizedMerged.length > 0) {
+          const firstProfileId = normalizedMerged[0].id;
           setCurrentProfileId(firstProfileId);
+          setProfileFilter(normalizedMerged[0].profileType ?? "express");
           localStorage.setItem(storageKey("currentProfileId"), firstProfileId);
           setSwitchingProfile(true);
         } else {
@@ -672,33 +712,11 @@ export default function CharacterPage() {
     loadProfiles();
   }, [user, sharedProfileId, isGuestMode]);
 
-  // Load profile data when currentProfileId or profiles change
-  useEffect(() => {
-    if (!currentProfileId || profiles.length === 0) return;
-    const profile = profiles.find((p) => p.id === currentProfileId);
-    if (!profile) return;
-
-    setCharacterName(profile.name);
-    setImage(profile.imageData || profileImages[profile.id] || null);
-
-    if (deletingNotesRef.current[currentProfileId]) {
-      setSwitchingProfile(false);
-      return;
-    }
-
-    if (lastNotesProfileIdRef.current === currentProfileId) return;
-    lastNotesProfileIdRef.current = currentProfileId;
-
-    setSwitchingProfile(true);
-    loadProfileNotes(currentProfileId).finally(() => {
-      setSwitchingProfile(false);
-    });
-  }, [currentProfileId, profiles]);
-
   useEffect(() => {
     if (!currentProfileId || profiles.length === 0 || isGuestMode) return;
     const profile = profiles.find((p) => p.id === currentProfileId);
     if (!profile) return;
+    if (profile.profileType === "mirror") return;
     if (profile.imageData || profileImages[currentProfileId]) return;
     if (imageLoadInProgressRef.current === currentProfileId) return;
     imageLoadInProgressRef.current = currentProfileId;
@@ -745,10 +763,13 @@ export default function CharacterPage() {
     const profile = profiles.find((p) => p.id === profileId);
     if (!profile) return;
     
+    const profileType = profile.profileType ?? "express";
     setEditingProfileId(profileId);
     setNewProfileName(profile.name);
     setNewProfileDesc(profile.description || "");
-    setNewProfileIsPublic(profile.visibility === "public");
+    setNewProfileBio(profile.bio || "");
+    setNewProfileType(profileType);
+    setNewProfileIsPublic(profileType === "mirror" ? true : profile.visibility === "public");
     setNewProfileImage(profile.imageData || profileImages[profileId] || null);
     setShowProfileModal(true);
   }, [profiles, profileImages]);
@@ -780,18 +801,12 @@ export default function CharacterPage() {
     setDeleteConfirmProfileId(null);
   };
 
-  const resetEditMode = () => {
-    setEditingProfileId(null);
-    setNewProfileName("");
-    setNewProfileDesc("");
-    setNewProfileImage(null);
-    setNewProfileIsPublic(false);
-    setImageUploadError(null);
-  };
-
   const createProfile = async () => {
     if (profileSaving) return;
-    if (isGuestMode || !newProfileName.trim() || !user || !newProfileImage) return;
+    if (isGuestMode || !newProfileName.trim() || !user) return;
+
+    const isMirrorProfile = newProfileType === "mirror";
+    if (!newProfileImage && !isMirrorProfile) return;
 
     // Validate inputs
     const nameValidation = validateProfileName(newProfileName);
@@ -801,7 +816,7 @@ export default function CharacterPage() {
       return;
     }
 
-    const descValidation = validateProfileDescription(newProfileDesc);
+    const descValidation = validateProfileDescription(isMirrorProfile ? newProfileBio : newProfileDesc);
     if (!descValidation.valid) {
       setToastMessage(descValidation.error || "Invalid profile description");
       setTimeout(() => setToastMessage(null), 2000);
@@ -823,14 +838,18 @@ export default function CharacterPage() {
     // Sanitize inputs
     const sanitizedName = sanitizeText(newProfileName);
     const sanitizedDesc = newProfileDesc ? sanitizeText(newProfileDesc) : null;
+    const sanitizedBio = newProfileBio ? sanitizeText(newProfileBio) : null;
+    const profileVisibility = isMirrorProfile ? "public" : newProfileIsPublic ? "public" : "private";
 
     if (editingProfileId) {
       const { data, error } = await supabase
         .from("profiles")
         .update({
           name: sanitizedName,
-          description: sanitizedDesc,
-          visibility: newProfileIsPublic ? "public" : "private",
+          description: isMirrorProfile ? null : sanitizedDesc,
+          bio: isMirrorProfile ? sanitizedBio : null,
+          profile_type: isMirrorProfile ? "mirror" : "express",
+          visibility: profileVisibility,
           image_data: newProfileImage,
         })
         .eq("id", editingProfileId)
@@ -843,7 +862,7 @@ export default function CharacterPage() {
         return;
       }
 
-      if (!newProfileIsPublic) {
+      if (isMirrorProfile || !newProfileIsPublic) {
         await supabase.from("profile_collaborators").delete().eq("profile_id", editingProfileId);
         if (isE2EEAvailable()) {
           await supabase.from("profile_key_shares").delete().eq("profile_id", editingProfileId);
@@ -854,6 +873,10 @@ export default function CharacterPage() {
       const updated = profiles.map((p) => (p.id === editingProfileId ? updatedProfile : p));
       setProfiles(updated);
 
+      if (updatedProfile.profileType && updatedProfile.profileType !== profileFilter) {
+        setProfileFilter(updatedProfile.profileType);
+      }
+
       if (updatedProfile.imageData) {
         setProfileImages({ ...profileImages, [editingProfileId]: updatedProfile.imageData });
       }
@@ -862,6 +885,10 @@ export default function CharacterPage() {
         setCharacterName(updatedProfile.name);
         setImage(updatedProfile.imageData || null);
       }
+
+    if (updatedProfile.profileType === "mirror") {
+      setNotes([]);
+    }
 
       resetEditMode();
       setShowProfileModal(false);
@@ -872,8 +899,10 @@ export default function CharacterPage() {
         .insert({
           owner_id: user.id,
           name: sanitizedName,
-          description: sanitizedDesc,
-          visibility: newProfileIsPublic ? "public" : "private",
+          description: isMirrorProfile ? null : sanitizedDesc,
+          bio: isMirrorProfile ? sanitizedBio : null,
+          profile_type: isMirrorProfile ? "mirror" : "express",
+          visibility: profileVisibility,
           image_data: newProfileImage,
           punch_count: 0,
           hug_count: 0,
@@ -892,6 +921,9 @@ export default function CharacterPage() {
       const newProfile = mapProfile(data);
       const updated = [newProfile, ...profiles];
       setProfiles(updated);
+      if (newProfile.profileType && newProfile.profileType !== profileFilter) {
+        setProfileFilter(newProfile.profileType);
+      }
       setCurrentProfileId(newProfile.id);
       localStorage.setItem(storageKey("currentProfileId"), newProfile.id);
 
@@ -906,22 +938,31 @@ export default function CharacterPage() {
       if (!newProfile.imageData) setImage(null);
       setCharacterName("");
       setProfileSaving(false);
+    if (newProfile.profileType === "mirror") {
+      setNotes([]);
+    }
     }
   };
 
-  const switchProfile = useCallback((profileId: string) => {
-    setCurrentProfileId(profileId);
-    localStorage.setItem(storageKey("currentProfileId"), profileId);
-    setSwitchingProfile(true);
+  const switchProfile = useCallback(
+    (profileId: string, profileType?: "express" | "mirror") => {
+      setCurrentProfileId(profileId);
+      localStorage.setItem(storageKey("currentProfileId"), profileId);
+      if (profileType && profileType !== profileFilter) {
+        setProfileFilter(profileType);
+      }
+      setSwitchingProfile(true);
     // Effect will load notes when currentProfileId updates (single source of truth)
     if (isMobile) {
       setIsMobileDrawerOpen(false);
       setIsProfilesSheetOpen(false);
     }
-  }, [isMobile]);
+    },
+    [isMobile, profileFilter]
+  );
 
   const handleKiss = async () => {
-    if (isKissing || isPunching || isHugging || noteSaving || switchingProfile) return;
+    if (isMirrorProfile || isKissing || isPunching || isHugging || noteSaving || switchingProfile) return;
     setIsKissing(true);
     setTimeout(() => {
       setIsKissing(false);
@@ -948,7 +989,7 @@ export default function CharacterPage() {
   };
 
   const handlePunch = async () => {
-    if (isPunching || isHugging || isKissing || noteSaving || switchingProfile) return;
+    if (isMirrorProfile || isPunching || isHugging || isKissing || noteSaving || switchingProfile) return;
     setIsPunching(true);
     setTimeout(() => {
       setIsPunching(false);
@@ -975,7 +1016,7 @@ export default function CharacterPage() {
   };
 
   const handleHug = async () => {
-    if (isHugging || isPunching || isKissing || noteSaving || switchingProfile) return;
+    if (isMirrorProfile || isHugging || isPunching || isKissing || noteSaving || switchingProfile) return;
     setIsHugging(true);
     setTimeout(() => {
       setIsHugging(false);
@@ -1002,10 +1043,12 @@ export default function CharacterPage() {
   };
 
   const handleWrite = () => {
+    if (isMirrorProfile) return;
     setShowWriteModal(true);
   };
 
   const handleSaveNote = async () => {
+    if (isMirrorProfile) return;
     if (!noteText.trim() || !currentProfileId || (!user && !isGuestMode)) return;
     if (isGuestMode) {
       setNoteSaving(true);
@@ -1197,13 +1240,199 @@ export default function CharacterPage() {
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 2000);
   };
 
-  // Derive active profile from profiles array (single source of truth)
-  const activeProfile = currentProfileId 
-    ? profiles.find((p) => p.id === currentProfileId) 
+  const filteredProfiles = useMemo(
+    () => profiles.filter((profile) => (profile.profileType ?? "express") === profileFilter),
+    [profiles, profileFilter]
+  );
+
+  // Derive active profile from filtered profiles (single source of truth)
+  const activeProfile = currentProfileId
+    ? filteredProfiles.find((p) => p.id === currentProfileId)
     : null;
 
+  useEffect(() => {
+    if (profiles.length === 0) return;
+    const hasExpress = profiles.some((profile) => (profile.profileType ?? "express") === "express");
+    const hasMirror = profiles.some((profile) => (profile.profileType ?? "express") === "mirror");
+    if (profileFilter === "express" && !hasExpress && hasMirror) {
+      setProfileFilter("mirror");
+    }
+  }, [profiles, profileFilter]);
+
+  useEffect(() => {
+    if (profilesLoading) return;
+    if (filteredProfiles.length === 0) {
+      setCurrentProfileId(null);
+      setCharacterName("");
+      setImage(null);
+      setNotes([]);
+      setSwitchingProfile(false);
+      return;
+    }
+    if (!currentProfileId || !filteredProfiles.some((p) => p.id === currentProfileId)) {
+      const nextProfileId = filteredProfiles[0].id;
+      setCurrentProfileId(nextProfileId);
+      if (user) {
+        localStorage.setItem(storageKey("currentProfileId"), nextProfileId);
+      }
+    }
+  }, [filteredProfiles, currentProfileId, user, profilesLoading]);
+
   const isOwner = !!activeProfile && !!user && activeProfile.ownerId === user.id;
+  const isMirrorProfile = activeProfile?.profileType === "mirror";
   const canManageProfiles = !!user && !isGuestMode;
+
+  type ReviewCategory = "appreciate" | "need_to_work_on" | "just_saying";
+
+  const reviewCategoryLabel: Record<ReviewCategory, string> = {
+    appreciate: "Appreciate",
+    need_to_work_on: "Need to Work On",
+    just_saying: "Just Saying",
+  };
+
+  const formatReviewDate = (timestamp?: number) => {
+    if (!timestamp) return "—";
+    const date = new Date(timestamp);
+    const diffMs = Date.now() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  };
+
+  const renderReviewStars = (value: number) => (
+    <div className="flex items-center gap-1 text-amber-500 text-sm">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <span key={star}>{star <= value ? "★" : "☆"}</span>
+      ))}
+    </div>
+  );
+
+  const mirrorAverageRating = useMemo(() => {
+    if (mirrorReviews.length === 0) return 0;
+    const sum = mirrorReviews.reduce((acc, review) => acc + review.rating, 0);
+    return Math.round((sum / mirrorReviews.length) * 10) / 10;
+  }, [mirrorReviews]);
+
+  const mirrorCategoryCounts = useMemo(
+    () =>
+      mirrorReviews.reduce(
+        (acc, review) => {
+          const category = (review.category || "just_saying") as ReviewCategory;
+          acc[category] += 1;
+          return acc;
+        },
+        { appreciate: 0, need_to_work_on: 0, just_saying: 0 } as Record<ReviewCategory, number>
+      ),
+    [mirrorReviews]
+  );
+
+  const mirrorGroupedReviews = useMemo(() => {
+    const categoryOrder: Record<ReviewCategory, number> = {
+      appreciate: 0,
+      need_to_work_on: 1,
+      just_saying: 2,
+    };
+    const groups: {
+      key: string;
+      rating: number;
+      createdAt?: number;
+      sections: { category: ReviewCategory; text: string }[];
+    }[] = [];
+    const byKey = new Map<string, (typeof groups)[number]>();
+
+    for (const review of mirrorReviews) {
+      const key = review.submissionId || review.id;
+      let group = byKey.get(key);
+      if (!group) {
+        group = { key, rating: review.rating, createdAt: review.createdAt, sections: [] };
+        byKey.set(key, group);
+        groups.push(group);
+      }
+      group.sections.push({
+        category: (review.category || "just_saying") as ReviewCategory,
+        text: review.reviewText,
+      });
+    }
+
+    for (const group of groups) {
+      group.sections.sort((a, b) => categoryOrder[a.category] - categoryOrder[b.category]);
+    }
+
+    return groups;
+  }, [mirrorReviews]);
+
+  // Load profile data when currentProfileId or profiles change
+  useEffect(() => {
+    if (!currentProfileId || profiles.length === 0 || !activeProfile) return;
+
+    setCharacterName(activeProfile.name);
+    setImage(activeProfile.imageData || profileImages[activeProfile.id] || null);
+    if (activeProfile.profileType === "mirror") {
+      setNotes([]);
+      setSwitchingProfile(false);
+      return;
+    }
+
+    if (deletingNotesRef.current[currentProfileId]) {
+      setSwitchingProfile(false);
+      return;
+    }
+
+    if (lastNotesProfileIdRef.current === currentProfileId) return;
+    lastNotesProfileIdRef.current = currentProfileId;
+
+    setSwitchingProfile(true);
+    loadProfileNotes(currentProfileId).finally(() => {
+      setSwitchingProfile(false);
+    });
+  }, [currentProfileId, profiles, activeProfile, profileImages]);
+
+  useEffect(() => {
+    if (!activeProfile || !isMirrorProfile || !isOwner) {
+      setMirrorReviews([]);
+      setMirrorReviewsLoading(false);
+      return;
+    }
+    let isMounted = true;
+    const loadMirrorReviews = async () => {
+      setMirrorReviewsLoading(true);
+      const { data, error } = await supabase
+        .from("reviews")
+        .select("id, profile_id, rating, review_text, category, submission_id, created_at, status")
+        .eq("profile_id", activeProfile.id)
+        .order("created_at", { ascending: false });
+      if (!isMounted) return;
+      if (error) {
+        console.error("Error loading mirror reviews:", {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        });
+        setMirrorReviews([]);
+        setMirrorReviewsLoading(false);
+        return;
+      }
+      const mapped = (data || []).map((review) => ({
+        id: review.id,
+        profileId: review.profile_id,
+        rating: review.rating,
+        reviewText: review.review_text,
+        category: (review.category || "just_saying") as ReviewCategory,
+        status: review.status,
+        submissionId: review.submission_id ?? null,
+        createdAt: review.created_at ? new Date(review.created_at).getTime() : undefined,
+      }));
+      setMirrorReviews(mapped);
+      setMirrorReviewsLoading(false);
+    };
+    loadMirrorReviews();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeProfile, isMirrorProfile, isOwner]);
 
   const loadCollaborators = async (profileId: string) => {
     if (!isOwner) return;
@@ -1224,7 +1453,7 @@ export default function CharacterPage() {
   };
 
   const shareDisabledMessage = "Enable sharing to add collaborators";
-  const canShareProfile = !!activeProfile && activeProfile.visibility === "public";
+  const canShareProfile = !!activeProfile && !isMirrorProfile && activeProfile.visibility === "public";
 
   const showShareDisabledMessage = useCallback(() => {
     setToastMessage(shareDisabledMessage);
@@ -1233,7 +1462,7 @@ export default function CharacterPage() {
   }, [shareDisabledMessage]);
 
   const handleShareProfile = async () => {
-    if (!activeProfile || !isOwner) return;
+    if (!activeProfile || !isOwner || isMirrorProfile) return;
     setShowShareModal(true);
     await loadCollaborators(activeProfile.id);
   };
@@ -1271,6 +1500,15 @@ export default function CharacterPage() {
     setShareCopying(false);
   };
 
+  const handleCopyMirrorLink = async (profileId?: string | null) => {
+    if (!profileId || typeof window === "undefined") return;
+    const url = `${window.location.origin}/mirror/${profileId}`;
+    await navigator.clipboard.writeText(url);
+    setToastMessage("Public profile link copied");
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2000);
+  };
+
   const handleRemoveCollaborator = async (collabId: string) => {
     if (!activeProfile || !isOwner) return;
     const collab = collaborators.find((c) => c.id === collabId);
@@ -1299,11 +1537,19 @@ export default function CharacterPage() {
     setShowGuestPrompt(false);
   };
 
+  const isMirrorForm = newProfileType === "mirror";
+
   const profileFormContent = (
     <>
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-bold text-gray-800">
-          {editingProfileId ? "Edit Profile" : "Create New Profile"}
+          {editingProfileId
+            ? isMirrorForm
+              ? "Edit Mirror Profile"
+              : "Edit Profile"
+            : isMirrorForm
+            ? "Create Mirror Profile"
+            : "Create New Profile"}
         </h3>
         <button
           onClick={() => {
@@ -1372,44 +1618,68 @@ export default function CharacterPage() {
         )}
       </div>
 
+      <label className="block text-sm font-medium text-gray-700">
+        {isMirrorForm ? "Display name" : "Profile name"}
+      </label>
       <input
         type="text"
         value={newProfileName}
         onChange={(e) => setNewProfileName(e.target.value)}
-        placeholder="Profile name (e.g., Manager, Parents)"
+        placeholder={isMirrorForm ? "e.g., Alex Morgan" : "Profile name (e.g., Manager, Parents)"}
         maxLength={30}
         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300"
       />
       <div className={`text-xs ${newProfileName.length >= 30 ? "text-red-600" : "text-gray-500"}`}>
         {newProfileName.length}/30 characters
       </div>
+      <label className="block text-sm font-medium text-gray-700">
+        {isMirrorForm ? "Bio / role (optional)" : "Description (optional)"}
+      </label>
       <textarea
-        value={newProfileDesc}
-        onChange={(e) => setNewProfileDesc(e.target.value)}
-        placeholder="Description (optional)"
+        value={isMirrorForm ? newProfileBio : newProfileDesc}
+        onChange={(e) => (isMirrorForm ? setNewProfileBio(e.target.value) : setNewProfileDesc(e.target.value))}
+        placeholder={isMirrorForm ? "Add your role for which you want the feedback" : "Description (optional)"}
         maxLength={50}
         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-20 resize-none"
       />
-      <div className={`text-xs ${newProfileDesc.length >= 50 ? "text-red-600" : "text-gray-500"}`}>
-        {newProfileDesc.length}/50 characters
+      <div className={`text-xs ${
+        (isMirrorForm ? newProfileBio.length : newProfileDesc.length) >= 50 ? "text-red-600" : "text-gray-500"
+      }`}>
+        {(isMirrorForm ? newProfileBio.length : newProfileDesc.length)}/50 characters
       </div>
 
-      {/* Public/Private Toggle */}
-      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-        <span className="text-sm font-medium text-gray-700">Add collaborators</span>
-        <button
-          onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-            newProfileIsPublic ? "bg-pink-500" : "bg-gray-300"
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              newProfileIsPublic ? "translate-x-6" : "translate-x-1"
+      {!isMirrorForm ? (
+        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+          <span className="text-sm font-medium text-gray-700">Add collaborators</span>
+          <button
+            onClick={() => setNewProfileIsPublic(!newProfileIsPublic)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              newProfileIsPublic ? "bg-pink-500" : "bg-gray-300"
             }`}
-          />
-        </button>
-      </div>
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                newProfileIsPublic ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
+            Mirror profiles are public so people can leave anonymous feedback.
+          </div>
+          {editingProfileId && (
+            <button
+              type="button"
+              onClick={() => handleCopyMirrorLink(editingProfileId)}
+              className="w-full flex items-center justify-center gap-2 rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50 transition-colors"
+            >
+              <span>Copy public link</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {!isMobile && (
         <div className="flex gap-3">
@@ -1424,9 +1694,9 @@ export default function CharacterPage() {
           </button>
         <button
             onClick={createProfile}
-          disabled={!newProfileName.trim() || !newProfileImage || profileSaving || imageUploading}
+          disabled={!newProfileName.trim() || (!newProfileImage && !isMirrorForm) || profileSaving || imageUploading}
             className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            newProfileName.trim() && newProfileImage && !profileSaving && !imageUploading
+            newProfileName.trim() && (newProfileImage || isMirrorForm) && !profileSaving && !imageUploading
                 ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                 : "bg-gray-200 text-gray-400 cursor-not-allowed"
             }`}
@@ -1450,28 +1720,6 @@ export default function CharacterPage() {
         times: [0, 0.38, 0.69, 1],
         ease: [0.4, 0, 0.2, 1],
       },
-    },
-  };
-
-  const punchEmojiVariants = {
-    initial: { x: -170, y: "-50%", opacity: 0, scale: 0.8 },
-    animate: {
-      x: "-50%",
-      y: "-50%",
-      opacity: [0, 1, 1, 1, 0],
-      scale: [0.8, 1.2, 1, 1, 0.9],
-      transition: {
-        duration: 1.3,
-        times: [0, 0.38, 0.38, 0.77, 1],
-        ease: [0.25, 0.46, 0.45, 0.94],
-      },
-    },
-    exit: {
-      x: "-30%",
-      y: "-50%",
-      opacity: 0,
-      scale: 0.8,
-      transition: { duration: 0.3 },
     },
   };
 
@@ -1505,25 +1753,109 @@ export default function CharacterPage() {
   const emptyStateContent = (
     <div className="h-[calc(100vh-4rem)] flex items-center justify-center px-6">
       <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-lg border border-gray-100 text-center max-w-md">
-        <h2 className="text-xl font-semibold text-gray-800">
-          Create your first profile to start expressing
-        </h2>
+        <h2 className="text-xl font-semibold text-gray-800">Choose how you want to start</h2>
         <p className="text-gray-600 mt-2">
-          Profiles let you capture how different people make you feel.
+          Create a private space to express feelings or a public profile for feedback.
         </p>
-        <button
-          onClick={() => setShowProfileModal(true)}
-          className="mt-5 px-5 py-2.5 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors"
-        >
-          + Create New Profile
-        </button>
+        <div className="mt-5 space-y-3">
+          <button
+            onClick={() => openCreateModal("express")}
+            className="w-full px-5 py-3 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors text-left"
+          >
+            <div className="font-semibold">Express about someone</div>
+            <div className="text-sm text-pink-50">Create a private space to say what you feel.</div>
+          </button>
+          <button
+            onClick={() => openCreateModal("mirror")}
+            className="w-full px-5 py-3 rounded-lg border border-purple-200 text-purple-700 font-medium hover:bg-white transition-colors text-left"
+          >
+            <div className="font-semibold">Get feedback about yourself</div>
+            <div className="text-sm text-purple-600">Create your public profile and let people share honest feedback.</div>
+          </button>
+        </div>
       </div>
     </div>
   );
 
   const characterContent = (
-    <div className="w-full max-w-md space-y-1 relative">
-      {image ? (
+    <div className={`w-full ${isMirrorProfile ? "max-w-5xl" : "max-w-md"} space-y-1 relative`}>
+      {isMirrorProfile ? (
+        <div className="sticky top-4 z-10 space-y-3">
+          <div className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-4 shadow-md flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {image ? (
+                <Image
+                  src={image}
+                  alt={characterName || "Mirror profile"}
+                  width={48}
+                  height={48}
+                  className="w-12 h-12 rounded-xl object-cover bg-white"
+                  unoptimized
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-gray-200 flex items-center justify-center text-xl">
+                  😊
+                </div>
+              )}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">{characterName}</h2>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white/70 px-3 py-1.5 text-sm">
+                <span className="text-amber-500">★</span>
+                <span className="font-semibold text-gray-800">{mirrorAverageRating || 0}</span>
+                <span className="text-gray-300">|</span>
+                <span className="text-gray-600">
+                  {mirrorReviews.length} rating{mirrorReviews.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {isOwner && activeProfile && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyMirrorLink(activeProfile.id)}
+                  className="p-2 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                  title="Copy public link"
+                  aria-label="Copy public link"
+                >
+                  <svg className="w-[18px] h-[18px]" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M13.2023 10.4049C12.7888 10.4074 12.381 10.5015 12.0082 10.6802C11.6354 10.8589 11.3069 11.1179 11.0462 11.4385L7.47767 9.79662C7.64541 9.28353 7.64541 8.73046 7.47767 8.21737L11.0462 6.57549C11.4663 7.08376 12.0528 7.42748 12.702 7.54596C13.3512 7.66445 14.0214 7.55009 14.5944 7.22307C15.1674 6.89605 15.6063 6.3774 15.8336 5.75867C16.0609 5.13993 16.062 4.46089 15.8367 3.84142C15.6114 3.22195 15.1743 2.70187 14.6023 2.37299C14.0304 2.0441 13.3605 1.92756 12.711 2.04394C12.0614 2.16031 11.4738 2.50211 11.052 3.00902C10.6303 3.51592 10.4014 4.15533 10.4058 4.81437C10.4077 4.98082 10.424 5.1468 10.4543 5.31047L6.75728 7.00793C6.36334 6.62311 5.86443 6.36294 5.32306 6.26004C4.7817 6.15714 4.22197 6.21608 3.71401 6.42948C3.20604 6.64288 2.77244 7.00124 2.46754 7.45966C2.16264 7.91808 2 8.45616 2 9.00649C2 9.55682 2.16264 10.0949 2.46754 10.5533C2.77244 11.0117 3.20604 11.3701 3.71401 11.5835C4.22197 11.7969 4.7817 11.8558 5.32306 11.7529C5.86443 11.65 6.36334 11.3899 6.75728 11.005L10.4523 12.7035C10.422 12.8672 10.4057 13.0332 10.4037 13.1996C10.4037 13.7526 10.5679 14.2931 10.8756 14.7529C11.1832 15.2126 11.6204 15.571 12.132 15.7826C12.6435 15.9942 13.2064 16.0495 13.7495 15.9417C14.2926 15.8338 14.7914 15.5675 15.1829 15.1765C15.5745 14.7855 15.8411 14.2874 15.9491 13.745C16.0572 13.2027 16.0017 12.6406 15.7898 12.1297C15.5779 11.6189 15.2191 11.1822 14.7587 10.875C14.2983 10.5678 13.757 10.4039 13.2033 10.4039L13.2023 10.4049ZM13.2023 3.417C13.4793 3.417 13.75 3.49901 13.9803 3.65267C14.2106 3.80633 14.39 4.02472 14.496 4.28024C14.602 4.53576 14.6297 4.81693 14.5757 5.08819C14.5217 5.35945 14.3883 5.60862 14.1925 5.80419C13.9966 5.99976 13.7471 6.13294 13.4755 6.1869C13.2039 6.24085 12.9223 6.21316 12.6664 6.10732C12.4106 6.00148 12.1919 5.82225 12.038 5.59228C11.8841 5.36232 11.802 5.09196 11.802 4.81538C11.802 4.63174 11.8382 4.4499 11.9086 4.28024C11.979 4.11058 12.0821 3.95643 12.2122 3.82658C12.3422 3.69672 12.4966 3.59372 12.6664 3.52344C12.8363 3.45317 13.0184 3.417 13.2023 3.417ZM4.80454 10.4049C4.52763 10.4049 4.25694 10.3229 4.02668 10.1693C3.79643 10.0157 3.61695 9.79732 3.51093 9.54186C3.40491 9.2864 3.37712 9.00528 3.43107 8.73405C3.48502 8.46282 3.61829 8.21365 3.81402 8.01804C4.00976 7.82243 4.25917 7.68917 4.53074 7.6351C4.8023 7.58103 5.08383 7.60858 5.33972 7.71426C5.59561 7.81995 5.81437 7.99903 5.96836 8.22886C6.12235 8.45868 6.20465 8.72895 6.20485 9.00548C6.20498 9.1892 6.16886 9.37115 6.09855 9.54093C6.02823 9.7107 5.92511 9.86498 5.79507 9.99494C5.66502 10.1249 5.51061 10.228 5.34065 10.2983C5.17069 10.3687 4.98852 10.4049 4.80454 10.4049ZM13.2023 14.598C12.9254 14.598 12.6546 14.516 12.4244 14.3623C12.1941 14.2087 12.0146 13.9903 11.9086 13.7348C11.8026 13.4792 11.7749 13.1981 11.8289 12.9268C11.883 12.6555 12.0163 12.4064 12.2122 12.2108C12.408 12.0152 12.6575 11.8821 12.9291 11.8281C13.2008 11.7741 13.4823 11.8018 13.7382 11.9077C13.9941 12.0135 14.2128 12.1928 14.3666 12.4227C14.5205 12.6527 14.6026 12.923 14.6026 13.1996C14.6026 13.3833 14.5664 13.5651 14.496 13.7348C14.4257 13.9044 14.3225 14.0586 14.1925 14.1884C14.0625 14.3183 13.9081 14.4213 13.7382 14.4916C13.5683 14.5618 13.3862 14.598 13.2023 14.598Z" fill="currentColor" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm text-gray-600">Feedback categories</p>
+              <span className="text-xs text-gray-500">
+                {mirrorReviews.length} review{mirrorReviews.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { key: "appreciate", label: "Appreciate", icon: "⭐" },
+                { key: "need_to_work_on", label: "Work On", icon: "📈" },
+                { key: "just_saying", label: "Just Saying", icon: "💭" },
+              ].map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-xl border border-gray-200 bg-white/70 p-3 text-left"
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {mirrorCategoryCounts[item.key as ReviewCategory]} review
+                    {mirrorCategoryCounts[item.key as ReviewCategory] === 1 ? "" : "s"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : image ? (
         <div className="relative space-y-1">
           <motion.div
             animate={isPunching ? "punch" : "initial"}
@@ -1637,12 +1969,12 @@ export default function CharacterPage() {
         <div className="w-full h-64 md:h-80 rounded-2xl bg-white/70 border border-gray-100 animate-pulse" />
       )}
 
-      {characterName ? (
+      {!isMirrorProfile && characterName ? (
         <div className="flex items-center justify-center gap-3">
           <h2 className="text-3xl md:text-3xl font-extrabold text-center text-gray-800">
             {characterName}
           </h2>
-          {isOwner && (
+          {isOwner && !isMirrorProfile && (
             <div className="relative group">
               <motion.button
                 onClick={() => {
@@ -1674,109 +2006,173 @@ export default function CharacterPage() {
             </div>
           )}
         </div>
-      ) : (
+      ) : !isMirrorProfile ? (
         <div className="h-7 w-32 mx-auto rounded bg-gray-200/70 animate-pulse" />
-      )}
+      ) : null}
 
       {activeProfile ? (
-        <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 space-y-2">
-          <p className="text-sm text-gray-600">This week:</p>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            <span className="flex items-center gap-1">
-              <span>👊</span>
-              <span>Punched: {activeProfile.punchCount}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span>🤗</span>
-              <span>Hugged: {activeProfile.hugCount}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span>💋</span>
-              <span>Kissed: {activeProfile.kissCount}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span>✏️</span>
-              <span>Notes: {activeProfile.notesCount}</span>
-            </span>
-          </div>
-        </div>
+        isMirrorProfile ? (
+          isOwner ? (
+            <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-700">Latest feedback</p>
+              {mirrorReviewsLoading ? (
+                <div className="h-20 rounded-lg bg-white/70 border border-gray-100 animate-pulse" />
+              ) : mirrorReviews.length === 0 ? (
+                <div className="text-sm text-gray-600 bg-white/70 border border-gray-100 rounded-lg p-3">
+                  No feedback yet. Share your link to get responses.
+                </div>
+              ) : (
+                <div className="columns-1 md:columns-2 xl:columns-3 gap-3">
+                  {mirrorGroupedReviews.map((group) => (
+                    <div
+                      key={group.key}
+                      className="break-inside-avoid mb-3 bg-white/80 border border-gray-100 rounded-lg p-3 shadow-sm space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        {renderReviewStars(group.rating)}
+                        <span className="text-xs text-gray-500">{formatReviewDate(group.createdAt)}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {group.sections.map((section, index) => (
+                          <div key={`${section.category}-${index}`} className="space-y-0.5">
+                            <span className="text-xs font-semibold text-purple-700">
+                              {reviewCategoryLabel[section.category]}
+                            </span>
+                            <p className="text-sm text-gray-700">{section.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null
+        ) : (
+          <>
+            <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 space-y-2">
+              <p className="text-sm text-gray-600">This week:</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                <span className="flex items-center gap-1">
+                  <span>👊</span>
+                  <span>Punched: {activeProfile.punchCount}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span>🤗</span>
+                  <span>Hugged: {activeProfile.hugCount}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span>💋</span>
+                  <span>Kissed: {activeProfile.kissCount}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span>✏️</span>
+                  <span>Notes: {activeProfile.notesCount}</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-2xl mx-auto">
+              <button
+                onClick={handlePunch}
+                disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
+                className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-red-100 h-32 bg-red-50 ${
+                  isPunching || isHugging || isKissing || noteSaving || switchingProfile
+                    ? "opacity-60 cursor-not-allowed"
+                    : "hover:shadow-md hover:scale-105 active:scale-95"
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <span className="text-sm font-semibold text-gray-800">Punch</span>
+              </button>
+
+              <button
+                onClick={handleHug}
+                disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
+                className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-pink-100 h-32 bg-pink-50 ${
+                  isPunching || isHugging || isKissing || noteSaving || switchingProfile
+                    ? "opacity-60 cursor-not-allowed"
+                    : "hover:shadow-md hover:scale-105 active:scale-95"
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  </svg>
+                </div>
+                <span className="text-sm font-semibold text-gray-800">Hug</span>
+              </button>
+
+              <button
+                onClick={handleKiss}
+                disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
+                className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-rose-100 h-32 bg-rose-50 ${
+                  isPunching || isHugging || isKissing || noteSaving || switchingProfile
+                    ? "opacity-60 cursor-not-allowed"
+                    : "hover:shadow-md hover:scale-105 active:scale-95"
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <span className="text-sm font-semibold text-gray-800">Kiss</span>
+              </button>
+
+              <button
+                onClick={handleWrite}
+                disabled={noteSaving || switchingProfile}
+                className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-blue-100 h-32 bg-blue-50 ${
+                  noteSaving || switchingProfile ? "opacity-60 cursor-not-allowed" : "hover:shadow-md hover:scale-105 active:scale-95"
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </div>
+                <span className="text-sm font-semibold text-gray-800">Say something</span>
+              </button>
+            </div>
+          </>
+        )
       ) : (
         <div className="h-16 rounded-xl bg-white/70 border border-gray-100 animate-pulse" />
       )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-2xl mx-auto">
-        <button
-          onClick={handlePunch}
-          disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-          className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-red-100 h-32 bg-red-50 ${
-            isPunching || isHugging || isKissing || noteSaving || switchingProfile
-              ? "opacity-60 cursor-not-allowed"
-              : "hover:shadow-md hover:scale-105 active:scale-95"
-          }`}
-        >
-          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <span className="text-sm font-semibold text-gray-800">Punch</span>
-        </button>
-
-        <button
-          onClick={handleHug}
-          disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-          className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-pink-100 h-32 bg-pink-50 ${
-            isPunching || isHugging || isKissing || noteSaving || switchingProfile
-              ? "opacity-60 cursor-not-allowed"
-              : "hover:shadow-md hover:scale-105 active:scale-95"
-          }`}
-        >
-          <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-            </svg>
-          </div>
-          <span className="text-sm font-semibold text-gray-800">Hug</span>
-        </button>
-
-        <button
-          onClick={handleKiss}
-          disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-          className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-rose-100 h-32 bg-rose-50 ${
-            isPunching || isHugging || isKissing || noteSaving || switchingProfile
-              ? "opacity-60 cursor-not-allowed"
-              : "hover:shadow-md hover:scale-105 active:scale-95"
-          }`}
-        >
-          <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <span className="text-sm font-semibold text-gray-800">Kiss</span>
-        </button>
-
-        <button
-          onClick={handleWrite}
-          disabled={noteSaving || switchingProfile}
-          className={`rounded-2xl p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-2 border border-blue-100 h-32 bg-blue-50 ${
-            noteSaving || switchingProfile ? "opacity-60 cursor-not-allowed" : "hover:shadow-md hover:scale-105 active:scale-95"
-          }`}
-        >
-          <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </div>
-          <span className="text-sm font-semibold text-gray-800">Say something</span>
-        </button>
-      </div>
     </div>
   );
 
   const profilesListContent = useMemo(
     () => (
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className="flex items-center gap-2 bg-gray-100/80 border border-gray-200 rounded-lg p-1">
+          <button
+            onClick={() => setProfileFilter("express")}
+            className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              profileFilter === "express"
+                ? "bg-white text-gray-800 shadow-sm border border-gray-200"
+                : "text-gray-500 bg-transparent"
+            }`}
+          >
+            Express
+          </button>
+          <button
+            onClick={() => setProfileFilter("mirror")}
+            className={`flex-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              profileFilter === "mirror"
+                ? "bg-white text-gray-800 shadow-sm border border-gray-200"
+                : "text-gray-500 bg-transparent"
+            }`}
+          >
+            Mirror
+          </button>
+        </div>
+
         {profilesLoading ? (
           [...Array(4)].map((_, i) => (
             <div
@@ -1792,8 +2188,12 @@ export default function CharacterPage() {
               </div>
             </div>
           ))
+        ) : filteredProfiles.length === 0 ? (
+          <div className="text-sm text-gray-500 bg-white/70 border border-gray-100 rounded-lg p-4 text-center">
+            No profiles in this mode yet.
+          </div>
         ) : (
-          profiles.map((profile) => (
+          filteredProfiles.map((profile) => (
             <div
               key={profile.id}
               className={`w-full p-4 rounded-xl transition-all flex items-center gap-3 border ${
@@ -1803,7 +2203,7 @@ export default function CharacterPage() {
               }`}
             >
               <button
-                onClick={() => switchProfile(profile.id)}
+                onClick={() => switchProfile(profile.id, profile.profileType ?? "express")}
                 className="flex-1 flex items-center gap-3 text-left min-w-0"
               >
                 {profileImages[profile.id] ? (
@@ -1825,9 +2225,11 @@ export default function CharacterPage() {
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-gray-800 truncate">{profile.name}</div>
-                  {profile.description && (
-                    <div className="text-xs text-gray-500 mt-0.5 truncate">{profile.description}</div>
-                  )}
+                {(profile.description || profile.bio) && (
+                  <div className="text-xs text-gray-500 mt-0.5 truncate">
+                    {profile.profileType === "mirror" ? profile.bio || "Mirror profile" : profile.description}
+                  </div>
+                )}
                 </div>
               </button>
               {profile.ownerId === user?.id && (
@@ -1858,27 +2260,50 @@ export default function CharacterPage() {
           ))
         )}
 
-        <button
-          onClick={() => setShowProfileModal(true)}
-          className="w-full p-3 rounded-lg transition-all bg-gray-50 border-2 border-dashed border-gray-300 hover:bg-gray-100 hover:border-pink-200 flex items-center gap-3 text-left"
-        >
-          <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-            </svg>
-          </div>
-          <div className="font-medium text-gray-800">New Profile</div>
-        </button>
+        <div className="grid grid-cols-1 gap-2">
+          <button
+            onClick={() => openCreateModal("express")}
+            className="w-full p-3 rounded-lg transition-all bg-gray-50 border-2 border-dashed border-gray-300 hover:bg-gray-100 hover:border-pink-200 flex items-center gap-3 text-left"
+          >
+            <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
+              <svg className="w-6 h-6 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+            <div>
+              <div className="font-medium text-gray-800">Create Express Profile</div>
+              <div className="text-xs text-gray-500">Create a private space to say what you feel.</div>
+            </div>
+          </button>
+          <button
+            onClick={() => openCreateModal("mirror")}
+            className="w-full p-3 rounded-lg transition-all bg-white border-2 border-dashed border-purple-200 hover:bg-white hover:border-purple-300 flex items-center gap-3 text-left"
+          >
+            <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+            <div>
+              <div className="font-medium text-gray-800">Create Mirror Profile</div>
+              <div className="text-xs text-gray-500">
+                Create your public profile and let people share honest feedback.
+              </div>
+            </div>
+          </button>
+        </div>
       </div>
     ),
     [
       profilesLoading,
-      profiles,
+      filteredProfiles,
       currentProfileId,
       profileImages,
+      profileFilter,
       user?.id,
       openEditModal,
       switchProfile,
+      openCreateModal,
     ]
   );
 
@@ -2001,265 +2426,46 @@ export default function CharacterPage() {
         )}
 
         {/* RIGHT PANEL - Character View */}
-        <div className="middle-section flex flex-col items-center justify-center p-8 md:h-full md:overflow-hidden">
-          <div className="w-full max-w-md space-y-8 relative">
-        {image ? (
-          <div className="relative space-y-4">
-            <motion.div
-              animate={isPunching ? "punch" : "initial"}
-              variants={punchVariants}
-              className="relative"
-            >
-              <motion.div
-                animate={isHugging ? "scale" : "initial"}
-                variants={scaleVariants}
-              >
-                <div className="w-full h-64 md:h-80 rounded-2xl overflow-hidden relative z-10 shadow-md">
-                  <Image
-                    src={image}
-                    alt={characterName || "Character"}
-                    fill
-                    sizes="(max-width: 768px) 90vw, 640px"
-                    className="object-contain object-center bg-white/70"
-                    priority
-                    unoptimized
-                  />
+        <div
+          className={`middle-section flex flex-col items-center justify-center p-8 md:h-full md:transition-[margin] md:duration-300 md:ease-in-out ${
+            isMirrorProfile ? "overflow-y-auto" : "md:overflow-hidden"
+          } ${
+            canManageProfiles && (profilesLoading || profiles.length > 0)
+              ? isSidebarCollapsed
+                ? "md:ml-[64px]"
+                : "md:ml-[280px]"
+              : ""
+          }`}
+        >
+          <div className={`w-full ${isMirrorProfile ? "max-w-5xl" : "max-w-md"} space-y-8 relative`}>
+            {filteredProfiles.length === 0 ? (
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-8 shadow-lg border border-gray-100 text-center space-y-4">
+                <h2 className="text-xl font-semibold text-gray-800">Create a profile to continue</h2>
+                <p className="text-gray-600 text-sm">
+                  This mode doesn&apos;t have any profiles yet. Start one to see it here.
+                </p>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => openCreateModal("express")}
+                    className="w-full px-5 py-3 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition-colors text-left"
+                  >
+                    <div className="font-semibold">Express about someone</div>
+                    <div className="text-sm text-pink-50">Create a private space to say what you feel.</div>
+                  </button>
+                  <button
+                    onClick={() => openCreateModal("mirror")}
+                    className="w-full px-5 py-3 rounded-lg border border-purple-200 text-purple-700 font-medium hover:bg-white transition-colors text-left"
+                  >
+                    <div className="font-semibold">Get feedback about yourself</div>
+                    <div className="text-sm text-purple-600">
+                      Create your public profile and let people share honest feedback.
+                    </div>
+                  </button>
                 </div>
-              </motion.div>
-
-              <AnimatePresence>
-                {isPunching && (
-                  <motion.div
-                    initial={{ x: 170, y: "-50%", opacity: 0, scale: 0.8 }}
-                    animate={{
-                      x: "-50%",
-                      y: "-50%",
-                      opacity: [0, 1, 1, 0],
-                      scale: [0.8, 1.2, 1, 0.9],
-                      transition: {
-                        duration: 1.3,
-                        times: [0, 0.38, 0.5, 0.77, 1],
-                        ease: [0.4, 0, 0.2, 1],
-                      },
-                    }}
-                    exit={{
-                      x: "30%",
-                      y: "-50%",
-                      opacity: 0,
-                      scale: 0.8,
-                      transition: { duration: 0.1 },
-                    }}
-                    className="absolute top-1/2 left-1/2 text-6xl pointer-events-none z-30"
-                  >
-                    🥊
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <AnimatePresence>
-                {isPunching && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: [0, 0.2, 0.15, 0.1, 0] }}
-                    exit={{ opacity: 0 }}
-                    transition={{
-                      duration: 1.3,
-                      times: [0, 0.38, 0.5, 0.77, 1],
-                    }}
-                    className="absolute inset-0 bg-red-500 rounded-lg pointer-events-none z-20"
-                  />
-                )}
-              </AnimatePresence>
-
-              <AnimatePresence>
-                {isHugging && (
-                  <>
-                    {[...Array(5)].map((_, i) => (
-                      <motion.div
-                        key={i}
-                        initial="initial"
-                        animate="animate"
-                        exit="initial"
-                        variants={heartVariants}
-                        transition={{
-                          duration: 1,
-                          delay: i * 0.1,
-                          ease: "easeOut",
-                        }}
-                        className="absolute top-1/2 left-1/2 text-2xl pointer-events-none z-30"
-                        style={{
-                          left: `${50 + (i - 2) * 15}%`,
-                        }}
-                      >
-                        ❤️
-                      </motion.div>
-                    ))}
-                  </>
-                )}
-              </AnimatePresence>
-
-              <AnimatePresence>
-                {isKissing && (
-                  <motion.div
-                    initial="initial"
-                    animate="kiss"
-                    exit="initial"
-                    variants={kissVariants}
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
-                  >
-                    <div className="text-5xl opacity-80">💋</div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          </div>
-        ) : (
-          <div className="w-full h-64 md:h-80 rounded-2xl bg-white/70 border border-gray-100 animate-pulse" />
-        )}
-
-        {characterName ? (
-          <div className="-mt-[8px] -mb-[8px] md:-mt-[11px] md:-mb-[11px] space-y-1 text-center">
-            <div className="flex items-center justify-center gap-2.5">
-              <h2 className="text-2xl md:text-[2.1rem] font-extrabold text-gray-800">
-                {characterName}
-              </h2>
-              {isOwner && (
-                <div className="relative group">
-                  <motion.button
-                    onClick={() => {
-                      if (!canShareProfile) {
-                        if (isMobile) {
-                          showShareDisabledMessage();
-                        }
-                        return;
-                      }
-                      handleShareProfile();
-                    }}
-                    className={`p-1.5 rounded-full transition-colors ${
-                      canShareProfile ? "hover:bg-gray-100" : "cursor-not-allowed opacity-40"
-                    }`}
-                    whileHover={canShareProfile ? { scale: 1.1 } : undefined}
-                    whileTap={canShareProfile ? { scale: 0.9 } : undefined}
-                    title={canShareProfile ? "Share profile" : undefined}
-                    aria-disabled={!canShareProfile}
-                  >
-                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                    </svg>
-                  </motion.button>
-                  {!isMobile && !canShareProfile && (
-                    <span className="pointer-events-none absolute -top-8 right-0 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-[10px] text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                      {shareDisabledMessage}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            {activeProfile?.visibility === "public" && (
-              <div className="text-sm text-gray-600">
-                {activeProfile.description?.trim() || "Shared"}
               </div>
+            ) : (
+              characterContent
             )}
-          </div>
-        ) : (
-          <div className="h-7 w-32 mx-auto rounded bg-gray-200/70 animate-pulse" />
-        )}
-
-        {/* Profile Summary Widget - Only show if using profiles */}
-        {activeProfile && profiles.length > 0 ? (
-          <div className="-mt-[2px] md:-mt-[3px] bg-white/60 backdrop-blur-sm rounded-xl p-2 md:p-3 space-y-1.5">
-            <p className="text-sm text-gray-600">This week:</p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <span className="flex items-center gap-1">
-                <span>👊</span>
-                <span>Punched: {activeProfile.punchCount}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span>🤗</span>
-                <span>Hugged: {activeProfile.hugCount}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span>💋</span>
-                <span>Kissed: {activeProfile.kissCount}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span>✏️</span>
-                <span>Notes: {activeProfile.notesCount}</span>
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="h-16 rounded-xl bg-white/70 border border-gray-100 animate-pulse" />
-        )}
-
-        {/* Horizontal Action Bar */}
-        <div className="-mt-[2px] md:-mt-[3px] grid grid-cols-4 md:grid-cols-4 gap-3 md:gap-4 w-full max-w-2xl mx-auto">
-          <button
-            onClick={handlePunch}
-            disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#F97316]/40 h-24 md:h-32 bg-[#F97316]/15 ${
-              isPunching || isHugging || isKissing || noteSaving || switchingProfile
-                ? "opacity-60 cursor-not-allowed"
-                : "hover:shadow-md hover:scale-105 active:scale-95"
-            }`}
-          >
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#F97316]/25 flex items-center justify-center">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#F97316]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <span className="text-xs md:text-sm font-semibold text-gray-800">Punch</span>
-          </button>
-
-          <button
-            onClick={handleHug}
-            disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#D97706]/60 h-24 md:h-32 bg-[#FDE047]/20 ${
-              isPunching || isHugging || isKissing || noteSaving || switchingProfile
-                ? "opacity-60 cursor-not-allowed"
-                : "hover:shadow-md hover:scale-105 active:scale-95"
-            }`}
-          >
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#FDE047]/35 flex items-center justify-center">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#D97706]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-              </svg>
-            </div>
-            <span className="text-xs md:text-sm font-semibold text-gray-800">Hug</span>
-          </button>
-
-          <button
-            onClick={handleKiss}
-            disabled={isPunching || isHugging || isKissing || noteSaving || switchingProfile}
-            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#FB7185]/40 h-24 md:h-32 bg-[#FB7185]/15 ${
-              isPunching || isHugging || isKissing || noteSaving || switchingProfile
-                ? "opacity-60 cursor-not-allowed"
-                : "hover:shadow-md hover:scale-105 active:scale-95"
-            }`}
-          >
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#FB7185]/25 flex items-center justify-center">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#FB7185]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <span className="text-xs md:text-sm font-semibold text-gray-800">Kiss</span>
-          </button>
-
-          <button
-            onClick={handleWrite}
-            disabled={noteSaving || switchingProfile}
-            className={`rounded-2xl p-3 md:p-4 shadow-sm transition-all transform flex flex-col items-center justify-center gap-1.5 md:gap-2 border border-[#A855F7]/40 h-24 md:h-32 bg-[#A855F7]/15 ${
-              noteSaving || switchingProfile ? "opacity-60 cursor-not-allowed" : "hover:shadow-md hover:scale-105 active:scale-95"
-            }`}
-          >
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-[#A855F7]/25 flex items-center justify-center">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-[#A855F7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-            </div>
-            <span className="text-xs md:text-sm font-semibold text-gray-800">Notes</span>
-          </button>
-        </div>
           </div>
         </div>
       </div>
@@ -2273,22 +2479,24 @@ export default function CharacterPage() {
         }
       `}</style>
 
-      <NotesPanel
-        isMobile={isMobile}
-        isGuestMode={isGuestMode}
-        notes={notes}
-        notesLoading={notesLoading}
-        noteSaving={noteSaving}
-        userId={user?.id}
-        showNotesSheet={showNotesSheet}
-        setShowNotesSheet={setShowNotesSheet}
-        sheetDragStartY={sheetDragStartY}
-        setSheetDragStartY={setSheetDragStartY}
-        handleDeleteNote={handleDeleteNote}
-        formatNoteDate={formatNoteDate}
-        getNoteTagClasses={getNoteTagClasses}
-        getNoteHeaderText={getNoteHeaderText}
-      />
+      {!isMirrorProfile && (
+        <NotesPanel
+          isMobile={isMobile}
+          isGuestMode={isGuestMode}
+          notes={notes}
+          notesLoading={notesLoading}
+          noteSaving={noteSaving}
+          userId={user?.id}
+          showNotesSheet={showNotesSheet}
+          setShowNotesSheet={setShowNotesSheet}
+          sheetDragStartY={sheetDragStartY}
+          setSheetDragStartY={setSheetDragStartY}
+          handleDeleteNote={handleDeleteNote}
+          formatNoteDate={formatNoteDate}
+          getNoteTagClasses={getNoteTagClasses}
+          getNoteHeaderText={getNoteHeaderText}
+        />
+      )}
 
       {/* Guest Conversion Prompt */}
       <AnimatePresence>
@@ -2571,9 +2779,9 @@ export default function CharacterPage() {
                 </button>
                 <button
                   onClick={createProfile}
-                  disabled={!newProfileName.trim() || !newProfileImage || profileSaving || imageUploading}
+                  disabled={!newProfileName.trim() || (!newProfileImage && newProfileType !== "mirror") || profileSaving || imageUploading}
                   className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all ${
-                    newProfileName.trim() && newProfileImage && !profileSaving && !imageUploading
+                    newProfileName.trim() && (newProfileImage || newProfileType === "mirror") && !profileSaving && !imageUploading
                       ? "bg-gradient-to-r from-pink-400 to-pink-500 text-white hover:from-pink-500 hover:to-pink-600 shadow-lg hover:shadow-xl"
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
@@ -2588,7 +2796,7 @@ export default function CharacterPage() {
 
       {/* Share Modal (Owner Only) */}
       <AnimatePresence>
-        {showShareModal && activeProfile && !isMobile && (
+        {showShareModal && activeProfile && !isMirrorProfile && !isMobile && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2703,7 +2911,7 @@ export default function CharacterPage() {
             </motion.div>
           </motion.div>
         )}
-        {showShareModal && activeProfile && isMobile && (
+        {showShareModal && activeProfile && !isMirrorProfile && isMobile && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2820,21 +3028,23 @@ export default function CharacterPage() {
         )}
       </AnimatePresence>
 
-      <WriteNoteModal
-        isOpen={showWriteModal}
-        isMobile={isMobile}
-        noteText={noteText}
-        setNoteText={setNoteText}
-        noteSaving={noteSaving}
-        noteEmotionType={noteEmotionType}
-        setNoteEmotionType={setNoteEmotionType}
-        setShowWriteModal={setShowWriteModal}
-        handleSaveNote={handleSaveNote}
-        noteInputRef={noteInputRef}
-        resizeNoteInput={resizeNoteInput}
-        sheetDragStartY={sheetDragStartY}
-        setSheetDragStartY={setSheetDragStartY}
-      />
+      {!isMirrorProfile && (
+        <WriteNoteModal
+          isOpen={showWriteModal}
+          isMobile={isMobile}
+          noteText={noteText}
+          setNoteText={setNoteText}
+          noteSaving={noteSaving}
+          noteEmotionType={noteEmotionType}
+          setNoteEmotionType={setNoteEmotionType}
+          setShowWriteModal={setShowWriteModal}
+          handleSaveNote={handleSaveNote}
+          noteInputRef={noteInputRef}
+          resizeNoteInput={resizeNoteInput}
+          sheetDragStartY={sheetDragStartY}
+          setSheetDragStartY={setSheetDragStartY}
+        />
+      )}
 
       {/* Toast Notification */}
       <AnimatePresence>
