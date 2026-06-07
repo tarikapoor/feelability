@@ -121,7 +121,7 @@ export default function LandingPage() {
       <section className="px-6 pt-16 pb-10">
         <div className="max-w-6xl mx-auto text-center space-y-6">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-700 text-sm font-medium">
-            ✨ Express and reflect
+            Express and Reflect
           </div>
           <h1 className="text-4xl md:text-6xl font-extrabold text-gray-800">
             Say what you&apos;ve always held back
@@ -292,7 +292,7 @@ export default function LandingPage() {
             <details className="group bg-white/80 border border-purple-100 rounded-2xl p-5 shadow-sm">
               <summary className="cursor-pointer list-none font-semibold text-gray-800 flex items-center justify-between">
                 Is Feelability really private?
-                <span className="text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                <span className="text-2xl leading-none text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
               </summary>
               <p className="text-gray-600 mt-3">
                 Yes. Your notes are end-to-end encrypted, which means only you can read them. We
@@ -302,7 +302,7 @@ export default function LandingPage() {
             <details className="group bg-white/80 border border-purple-100 rounded-2xl p-5 shadow-sm">
               <summary className="cursor-pointer list-none font-semibold text-gray-800 flex items-center justify-between">
                 What is a Mirror Profile?
-                <span className="text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                <span className="text-2xl leading-none text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
               </summary>
               <p className="text-gray-600 mt-3">
                 A Mirror Profile is a shareable link you can send to people in your life. They can
@@ -312,7 +312,7 @@ export default function LandingPage() {
             <details className="group bg-white/80 border border-purple-100 rounded-2xl p-5 shadow-sm">
               <summary className="cursor-pointer list-none font-semibold text-gray-800 flex items-center justify-between">
                 Is Feelability a therapy app?
-                <span className="text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                <span className="text-2xl leading-none text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
               </summary>
               <p className="text-gray-600 mt-3">
                 No. Feelability is a private emotional journaling and anonymous feedback tool.
@@ -323,7 +323,7 @@ export default function LandingPage() {
             <details className="group bg-white/80 border border-purple-100 rounded-2xl p-5 shadow-sm">
               <summary className="cursor-pointer list-none font-semibold text-gray-800 flex items-center justify-between">
                 Is it free to use?
-                <span className="text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                <span className="text-2xl leading-none text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
               </summary>
               <p className="text-gray-600 mt-3">
                 You can{" "}
@@ -339,7 +339,7 @@ export default function LandingPage() {
             <details className="group bg-white/80 border border-purple-100 rounded-2xl p-5 shadow-sm">
               <summary className="cursor-pointer list-none font-semibold text-gray-800 flex items-center justify-between">
                 Who can see what I write?
-                <span className="text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+                <span className="text-2xl leading-none text-purple-400 transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
               </summary>
               <p className="text-gray-600 mt-3">
                 Nobody. Notes you write are private and encrypted. Only content shared through your
