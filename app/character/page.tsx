@@ -91,6 +91,7 @@ export default function CharacterPage() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [mirrorReviews, setMirrorReviews] = useState<Review[]>([]);
   const [mirrorReviewsLoading, setMirrorReviewsLoading] = useState(false);
+  const [mirrorCategoryFilter, setMirrorCategoryFilter] = useState<ReviewCategory | null>(null);
   const [collabActionId, setCollabActionId] = useState<string | null>(null);
   const [shareCopying, setShareCopying] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -1391,6 +1392,13 @@ export default function CharacterPage() {
     return groups;
   }, [mirrorReviews]);
 
+  const mirrorFilteredGroups = useMemo(() => {
+    if (!mirrorCategoryFilter) return mirrorGroupedReviews;
+    return mirrorGroupedReviews.filter((group) =>
+      group.sections.some((section) => section.category === mirrorCategoryFilter)
+    );
+  }, [mirrorGroupedReviews, mirrorCategoryFilter]);
+
   // Load profile data when currentProfileId or profiles change
   useEffect(() => {
     if (!currentProfileId || profiles.length === 0 || !activeProfile) return;
@@ -1416,6 +1424,10 @@ export default function CharacterPage() {
       setSwitchingProfile(false);
     });
   }, [currentProfileId, profiles, activeProfile, profileImages]);
+
+  useEffect(() => {
+    setMirrorCategoryFilter(null);
+  }, [activeProfile?.id]);
 
   useEffect(() => {
     if (!activeProfile || !isMirrorProfile || !isOwner) {
@@ -1871,21 +1883,34 @@ export default function CharacterPage() {
                 { key: "appreciate", label: "Appreciate", icon: "⭐" },
                 { key: "need_to_work_on", label: "Work On", icon: "📈" },
                 { key: "just_saying", label: "Just Saying", icon: "💭" },
-              ].map((item) => (
-                <div
-                  key={item.key}
-                  className="rounded-xl border border-gray-200 bg-white/70 p-3 text-left"
-                >
-                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {mirrorCategoryCounts[item.key as ReviewCategory]} review
-                    {mirrorCategoryCounts[item.key as ReviewCategory] === 1 ? "" : "s"}
-                  </div>
-                </div>
-              ))}
+              ].map((item) => {
+                const categoryKey = item.key as ReviewCategory;
+                const isActive = mirrorCategoryFilter === categoryKey;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() =>
+                      setMirrorCategoryFilter((prev) => (prev === categoryKey ? null : categoryKey))
+                    }
+                    aria-pressed={isActive}
+                    className={`rounded-xl border p-3 text-left transition-colors ${
+                      isActive
+                        ? "border-purple-400 bg-purple-50 ring-1 ring-purple-300"
+                        : "border-gray-200 bg-white/70 hover:bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                      <span>{item.icon}</span>
+                      <span>{item.label}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {mirrorCategoryCounts[categoryKey]} review
+                      {mirrorCategoryCounts[categoryKey] === 1 ? "" : "s"}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -2048,16 +2073,31 @@ export default function CharacterPage() {
         isMirrorProfile ? (
           isOwner ? (
             <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 space-y-3">
-              <p className="text-sm font-semibold text-gray-700">Latest feedback</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-700">Latest feedback</p>
+                {mirrorCategoryFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setMirrorCategoryFilter(null)}
+                    className="text-xs font-medium text-purple-600 hover:text-purple-700"
+                  >
+                    Clear filter
+                  </button>
+                )}
+              </div>
               {mirrorReviewsLoading ? (
                 <div className="h-20 rounded-lg bg-white/70 border border-gray-100 animate-pulse" />
               ) : mirrorReviews.length === 0 ? (
                 <div className="text-sm text-gray-600 bg-white/70 border border-gray-100 rounded-lg p-3">
                   No feedback yet. Share your link to get responses.
                 </div>
+              ) : mirrorFilteredGroups.length === 0 ? (
+                <div className="text-sm text-gray-600 bg-white/70 border border-gray-100 rounded-lg p-3">
+                  No feedback in this category yet.
+                </div>
               ) : (
                 <div className="columns-1 md:columns-2 xl:columns-3 gap-3">
-                  {mirrorGroupedReviews.map((group) => (
+                  {mirrorFilteredGroups.map((group) => (
                     <div
                       key={group.key}
                       className="break-inside-avoid mb-3 bg-white/80 border border-gray-100 rounded-lg p-3 shadow-sm space-y-2"

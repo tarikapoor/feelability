@@ -51,6 +51,7 @@ export default function MirrorProfilePage() {
   const [reviewTextJustSaying, setReviewTextJustSaying] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<ReviewCategory | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
 
   const handleBack = () => {
@@ -194,6 +195,27 @@ export default function MirrorProfilePage() {
 
     return groups;
   }, [reviews]);
+
+  const categoryCounts = useMemo(
+    () =>
+      groupedReviews.reduce(
+        (acc, group) => {
+          for (const section of group.sections) {
+            acc[section.category] += 1;
+          }
+          return acc;
+        },
+        { appreciate: 0, need_to_work_on: 0, just_saying: 0 } as Record<ReviewCategory, number>
+      ),
+    [groupedReviews]
+  );
+
+  const filteredGroups = useMemo(() => {
+    if (!categoryFilter) return groupedReviews;
+    return groupedReviews.filter((group) =>
+      group.sections.some((section) => section.category === categoryFilter)
+    );
+  }, [groupedReviews, categoryFilter]);
 
   const handleAddReview = () => {
     setShowForm(true);
@@ -510,13 +532,54 @@ export default function MirrorProfilePage() {
 
         <section className="space-y-4">
           <h3 className="text-xl font-semibold text-gray-800">Reviews</h3>
+          {reviews.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: "appreciate", label: "⭐ Appreciate" },
+                { key: "need_to_work_on", label: "📈 Work On" },
+                { key: "just_saying", label: "💭 Just Saying" },
+              ] as { key: ReviewCategory; label: string }[]).map((item) => {
+                const isActive = categoryFilter === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() =>
+                      setCategoryFilter((prev) => (prev === item.key ? null : item.key))
+                    }
+                    aria-pressed={isActive}
+                    className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-colors ${
+                      isActive
+                        ? "border-purple-400 bg-purple-50 text-purple-700 ring-1 ring-purple-300"
+                        : "border-gray-200 bg-white/70 text-gray-600 hover:bg-white"
+                    }`}
+                  >
+                    {item.label} ({categoryCounts[item.key]})
+                  </button>
+                );
+              })}
+              {categoryFilter && (
+                <button
+                  type="button"
+                  onClick={() => setCategoryFilter(null)}
+                  className="px-3 py-1.5 rounded-full text-sm font-medium text-purple-600 hover:text-purple-700"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
           {reviews.length === 0 ? (
             <div className="bg-white/70 border border-gray-100 rounded-2xl p-6 text-gray-600 text-sm">
               No feedback yet. Be the first to share honest thoughts.
             </div>
+          ) : filteredGroups.length === 0 ? (
+            <div className="bg-white/70 border border-gray-100 rounded-2xl p-6 text-gray-600 text-sm">
+              No feedback in this category yet.
+            </div>
           ) : (
             <div className="space-y-4">
-              {groupedReviews.map((group) => (
+              {filteredGroups.map((group) => (
                 <div
                   key={group.key}
                   className="bg-white/80 border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3"
