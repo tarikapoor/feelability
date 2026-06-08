@@ -1316,9 +1316,16 @@ export default function CharacterPage() {
   );
 
   const mirrorAverageRating = useMemo(() => {
-    if (mirrorReviews.length === 0) return 0;
-    const sum = mirrorReviews.reduce((acc, review) => acc + review.rating, 0);
-    return Math.round((sum / mirrorReviews.length) * 10) / 10;
+    const ratingBySubmission = new Map<string, number>();
+    for (const review of mirrorReviews) {
+      const key = review.submissionId || review.id;
+      if (!ratingBySubmission.has(key)) {
+        ratingBySubmission.set(key, review.rating);
+      }
+    }
+    if (ratingBySubmission.size === 0) return 0;
+    const sum = Array.from(ratingBySubmission.values()).reduce((acc, rating) => acc + rating, 0);
+    return Math.round((sum / ratingBySubmission.size) * 10) / 10;
   }, [mirrorReviews]);
 
   const mirrorCategoryCounts = useMemo(
@@ -1627,31 +1634,37 @@ export default function CharacterPage() {
       <label className="block text-sm font-medium text-gray-700">
         {isMirrorForm ? "Display name" : "Profile name"}
       </label>
-      <input
-        type="text"
-        value={newProfileName}
-        onChange={(e) => setNewProfileName(e.target.value)}
-        placeholder={isMirrorForm ? "e.g., Alex Morgan" : "Profile name (e.g., Manager, Parents)"}
-        maxLength={30}
-        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300"
-      />
-      <div className={`text-xs ${newProfileName.length >= 30 ? "text-red-600" : "text-gray-500"}`}>
-        {newProfileName.length}/30 characters
+      <div className="relative">
+        <input
+          type="text"
+          value={newProfileName}
+          onChange={(e) => setNewProfileName(e.target.value)}
+          placeholder={isMirrorForm ? "e.g., Alex Morgan" : "Profile name (e.g., Manager, Parents)"}
+          maxLength={30}
+          className="w-full px-4 py-2 pr-16 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300"
+        />
+        <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${
+          newProfileName.length >= 30 ? "text-red-600" : "text-gray-400"
+        }`}>
+          {newProfileName.length}/30
+        </span>
       </div>
       <label className="block text-sm font-medium text-gray-700">
         {isMirrorForm ? "Bio / role (optional)" : "Description (optional)"}
       </label>
-      <textarea
-        value={isMirrorForm ? newProfileBio : newProfileDesc}
-        onChange={(e) => (isMirrorForm ? setNewProfileBio(e.target.value) : setNewProfileDesc(e.target.value))}
-        placeholder={isMirrorForm ? "Add your role for which you want the feedback" : "Description (optional)"}
-        maxLength={50}
-        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-20 resize-none"
-      />
-      <div className={`text-xs ${
-        (isMirrorForm ? newProfileBio.length : newProfileDesc.length) >= 50 ? "text-red-600" : "text-gray-500"
-      }`}>
-        {(isMirrorForm ? newProfileBio.length : newProfileDesc.length)}/50 characters
+      <div className="relative">
+        <textarea
+          value={isMirrorForm ? newProfileBio : newProfileDesc}
+          onChange={(e) => (isMirrorForm ? setNewProfileBio(e.target.value) : setNewProfileDesc(e.target.value))}
+          placeholder={isMirrorForm ? "Add your role for which you want the feedback" : "Description (optional)"}
+          maxLength={50}
+          className="w-full px-4 py-2 pr-16 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 min-h-20 resize-none"
+        />
+        <span className={`absolute bottom-2 right-3 text-xs ${
+          (isMirrorForm ? newProfileBio.length : newProfileDesc.length) >= 50 ? "text-red-600" : "text-gray-400"
+        }`}>
+          {(isMirrorForm ? newProfileBio.length : newProfileDesc.length)}/50
+        </span>
       </div>
 
       {!isMirrorForm ? (
@@ -1813,7 +1826,7 @@ export default function CharacterPage() {
                 <span className="font-semibold text-gray-800">{mirrorAverageRating || 0}</span>
                 <span className="text-gray-300">|</span>
                 <span className="text-gray-600">
-                  {mirrorReviews.length} rating{mirrorReviews.length === 1 ? "" : "s"}
+                  {mirrorGroupedReviews.length} rating{mirrorGroupedReviews.length === 1 ? "" : "s"}
                 </span>
               </div>
               {isOwner && activeProfile && (
@@ -1835,7 +1848,7 @@ export default function CharacterPage() {
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm text-gray-600">Feedback categories</p>
               <span className="text-xs text-gray-500">
-                {mirrorReviews.length} review{mirrorReviews.length === 1 ? "" : "s"}
+                {mirrorGroupedReviews.length} review{mirrorGroupedReviews.length === 1 ? "" : "s"}
               </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

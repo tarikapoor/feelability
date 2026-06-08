@@ -148,9 +148,16 @@ export default function MirrorProfilePage() {
   }, [searchParams]);
 
   const averageRating = useMemo(() => {
-    if (reviews.length === 0) return 0;
-    const sum = reviews.reduce((acc, review) => acc + review.rating, 0);
-    return Math.round((sum / reviews.length) * 10) / 10;
+    const ratingBySubmission = new Map<string, number>();
+    for (const review of reviews) {
+      const key = review.submissionId || review.id;
+      if (!ratingBySubmission.has(key)) {
+        ratingBySubmission.set(key, review.rating);
+      }
+    }
+    if (ratingBySubmission.size === 0) return 0;
+    const sum = Array.from(ratingBySubmission.values()).reduce((acc, rating) => acc + rating, 0);
+    return Math.round((sum / ratingBySubmission.size) * 10) / 10;
   }, [reviews]);
 
   const groupedReviews = useMemo(() => {
@@ -394,7 +401,7 @@ export default function MirrorProfilePage() {
               <span className="font-semibold text-gray-800">{averageRating || 0}</span>
               <span className="text-gray-300">|</span>
               <span className="text-gray-600">
-                {reviews.length} rating{reviews.length === 1 ? "" : "s"}
+                {groupedReviews.length} rating{groupedReviews.length === 1 ? "" : "s"}
               </span>
             </div>
             <button
