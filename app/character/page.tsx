@@ -224,7 +224,22 @@ export default function CharacterPage() {
     }
     openCreateModal(createProfileType);
     setHasAutoOpenedCreate(true);
-  }, [hasAutoOpenedCreate, user, profilesLoading, shouldPromptCreate, createProfileType, openCreateModal]);
+    // Remove the create/type params so refreshing doesn't reopen the modal.
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    params.delete("create");
+    params.delete("type");
+    const query = params.toString();
+    router.replace(query ? `/app?${query}` : "/app");
+  }, [
+    hasAutoOpenedCreate,
+    user,
+    profilesLoading,
+    shouldPromptCreate,
+    createProfileType,
+    openCreateModal,
+    searchParams,
+    router,
+  ]);
 
   // Redirect unauthenticated users
   useEffect(() => {
