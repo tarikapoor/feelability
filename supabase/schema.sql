@@ -43,12 +43,14 @@ create table if not exists public.reviews (
   category text not null default 'just_saying',
   status text not null default 'approved',
   submission_id uuid,
+  relationship text,
   reviewer_user_id uuid references auth.users(id) on delete set null,
   reviewer_fingerprint text,
   created_at timestamptz not null default now()
 );
 
 alter table public.reviews add column if not exists submission_id uuid;
+alter table public.reviews add column if not exists relationship text;
 
 alter table public.profiles enable row level security;
 alter table public.profile_collaborators enable row level security;

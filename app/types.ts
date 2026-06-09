@@ -22,6 +22,12 @@ export interface Note {
   createdAt?: number;
 }
 
+export type ReviewRelationship =
+  | "same_team"
+  | "friend"
+  | "manager"
+  | "collaborator";
+
 export interface Review {
   id: string;
   profileId: string;
@@ -30,6 +36,7 @@ export interface Review {
   category?: "appreciate" | "need_to_work_on" | "just_saying";
   status?: "approved" | "pending" | "rejected";
   submissionId?: string | null;
+  relationship?: ReviewRelationship | null;
   createdAt?: number;
 }
 

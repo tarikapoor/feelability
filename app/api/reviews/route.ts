@@ -19,6 +19,14 @@ export async function POST(request: Request) {
     const submissionIdRaw = (body?.submissionId as string | undefined) ?? "";
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const submissionId = uuidPattern.test(submissionIdRaw) ? submissionIdRaw : null;
+    const relationshipRaw = (body?.relationship as string | undefined) ?? "";
+    const allowedRelationships = new Set([
+      "same_team",
+      "friend",
+      "manager",
+      "collaborator",
+    ]);
+    const relationship = allowedRelationships.has(relationshipRaw) ? relationshipRaw : null;
 
     if (!profileId || !Number.isFinite(rating) || rating < 1 || rating > 5) {
       return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
@@ -46,6 +54,7 @@ export async function POST(request: Request) {
       category,
       status: "approved",
       submission_id: submissionId,
+      relationship,
     });
 
     if (error) {

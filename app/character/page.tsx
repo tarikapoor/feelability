@@ -33,7 +33,7 @@ import {
   loadAndDecryptNotes,
   createEncryptedNote,
 } from "@/lib/e2ee-notes";
-import type { Profile, Note, Review } from "../types";
+import type { Profile, Note, Review, ReviewRelationship } from "../types";
 
 const NotesPanel = dynamic(() => import("@/components/NotesPanel"), { ssr: false });
 const WriteNoteModal = dynamic(() => import("@/components/WriteNoteModal"), { ssr: false });
@@ -1312,6 +1312,13 @@ export default function CharacterPage() {
     just_saying: "Just Saying",
   };
 
+  const relationshipBadge: Record<ReviewRelationship, string> = {
+    same_team: "Worked in the same team",
+    friend: "Friend",
+    manager: "Manager",
+    collaborator: "Collaborated on projects",
+  };
+
   const formatReviewDate = (timestamp?: number) => {
     if (!timestamp) return "—";
     const date = new Date(timestamp);
@@ -1367,6 +1374,7 @@ export default function CharacterPage() {
       key: string;
       rating: number;
       createdAt?: number;
+      relationship?: ReviewRelationship | null;
       sections: { category: ReviewCategory; text: string }[];
     }[] = [];
     const byKey = new Map<string, (typeof groups)[number]>();
@@ -1375,7 +1383,13 @@ export default function CharacterPage() {
       const key = review.submissionId || review.id;
       let group = byKey.get(key);
       if (!group) {
-        group = { key, rating: review.rating, createdAt: review.createdAt, sections: [] };
+        group = {
+          key,
+          rating: review.rating,
+          createdAt: review.createdAt,
+          relationship: review.relationship ?? "same_team",
+          sections: [],
+        };
         byKey.set(key, group);
         groups.push(group);
       }
@@ -1440,7 +1454,7 @@ export default function CharacterPage() {
       setMirrorReviewsLoading(true);
       const { data, error } = await supabase
         .from("reviews")
-        .select("id, profile_id, rating, review_text, category, submission_id, created_at, status")
+        .select("id, profile_id, rating, review_text, category, submission_id, relationship, created_at, status")
         .eq("profile_id", activeProfile.id)
         .order("created_at", { ascending: false });
       if (!isMounted) return;
@@ -1463,6 +1477,7 @@ export default function CharacterPage() {
         category: (review.category || "just_saying") as ReviewCategory,
         status: review.status,
         submissionId: review.submission_id ?? null,
+        relationship: (review.relationship ?? null) as ReviewRelationship | null,
         createdAt: review.created_at ? new Date(review.created_at).getTime() : undefined,
       }));
       setMirrorReviews(mapped);
@@ -2106,6 +2121,11 @@ export default function CharacterPage() {
                         {renderReviewStars(group.rating)}
                         <span className="text-xs text-gray-500">{formatReviewDate(group.createdAt)}</span>
                       </div>
+                      {group.relationship && (
+                        <span className="inline-block text-xs font-medium text-purple-700 bg-purple-50 border border-purple-100 rounded-full px-2.5 py-0.5">
+                          {relationshipBadge[group.relationship]}
+                        </span>
+                      )}
                       <div className="space-y-2">
                         {group.sections.map((section, index) => (
                           <div key={`${section.category}-${index}`} className="space-y-0.5">
